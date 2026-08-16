@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"path": "ESP32_Sofware"
+		},
+		{
+			"path": "HMI_Client"
+		}
+	],
+	"settings": {}
+}
