@@ -1,4 +1,6 @@
 #include "Communication/NetworkManager.h"
+#include "Sensors/SensorManager.h"
+#include "Init/SystemInit.h"
 #include <esp_crc.h>
 #include <cstring>
 
@@ -7,129 +9,188 @@
 // ============================================================
 
 NetworkManager::NetworkManager()
-    : _packetId(0)
+    : _taskHandle(nullptr)
+    , _packetId(0)
     , _clientIPSet(false)
+    , _telemetryPort(8888)  // Дефолт на случай если begin() не вызван
+    , _commandPort(8889)
 {
-    _mutex = xSemaphoreCreateMutex();
 }
 
 NetworkManager::~NetworkManager() {
-    if (_mutex) vSemaphoreDelete(_mutex);
+    if (_taskHandle) vTaskDelete(_taskHandle);
 }
 
 // ============================================================
-//  Инициализация
+//  Инициализация (порты из конфига)
 // ============================================================
 
-void NetworkManager::begin() {
-    // Сокет для отправки телеметрии (порт 8888)
-    _udpTelemetry.begin(UDP_TELEMETRY_PORT);
+void NetworkManager::begin(uint16_t telemetryPort, uint16_t commandPort) {
+    _telemetryPort = telemetryPort;
+    _commandPort   = commandPort;
 
-    // Сокет для приёма команд (порт 8889)
-    _udpCommand.begin(UDP_COMMAND_PORT);
+    _udpTelemetry.begin(_telemetryPort);
+    _udpCommand.begin(_commandPort);
 
-    Serial.println("[NET] UDP sockets opened: 8888 (tx) / 8889 (rx)");
+    Serial.printf("[NET] UDP sockets: %d (tx) / %d (rx)\n", _telemetryPort, _commandPort);
 }
 
 // ============================================================
-//  Отправка телеметрии
+//  Запуск задачи
 // ============================================================
 
-bool NetworkManager::sendTelemetry(TelemetryPacket& pkt) {
-    if (!WiFi.isConnected()) return false;
-
-    // Заполнить заголовок, packet_id, timestamp, CRC
-    finalizePacket(pkt);
-
-    // Определить адрес получателя
-    IPAddress destIP;
-    if (_clientIPSet) {
-        destIP = _clientIP;
-    } else {
-        // Broadcast если клиент ещё не известен
-        destIP = IPAddress(255, 255, 255, 255);
+bool NetworkManager::startTask(uint8_t coreId, uint8_t priority) {
+    BaseType_t ok = xTaskCreatePinnedToCore(
+        networkTaskEntry,
+        "NetworkTask",
+        8192,
+        this,
+        priority,
+        &_taskHandle,
+        coreId
+    );
+    if (ok != pdPASS) {
+        Serial.println("[NET] Task creation FAILED");
+        return false;
     }
-
-    _udpTelemetry.beginPacket(destIP, UDP_TELEMETRY_PORT);
-    _udpTelemetry.write((const uint8_t*)&pkt, sizeof(TelemetryPacket));
-    _udpTelemetry.endPacket();
-
+    Serial.println("[NET] Task started");
     return true;
 }
 
+void NetworkManager::networkTaskEntry(void* param) {
+    static_cast<NetworkManager*>(param)->networkTaskLoop();
+}
+
 // ============================================================
-//  Приём команды
+//  Основной цикл задачи
+// ============================================================
+
+void NetworkManager::networkTaskLoop() {
+    uint32_t periodMs = System_GetTelemetryPeriodMs();
+    TickType_t lastWakeTime = xTaskGetTickCount();
+
+    for (;;) {
+        // 1. Приём команд от ПК
+        uint8_t cmdBuf[64];
+        if (receiveCommand(cmdBuf, sizeof(cmdBuf))) {
+            Serial.printf("[NET] Command received: 0x%02X\n", cmdBuf[0]);
+            // TODO: парсинг команд (Этап 3)
+        }
+
+        // 2. Отправка телеметрии
+        if (isConnected()) {
+            sendTelemetry();
+        }
+
+        vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(periodMs));
+    }
+}
+
+// ============================================================
+//  Сборка и отправка телеметрии
+// ============================================================
+
+void NetworkManager::sendTelemetry() {
+    TelemetryPacket pkt;
+    memset(&pkt, 0, sizeof(pkt));
+
+    // --- IMU (из SensorManager) ---
+    auto& sensors = SensorManager::instance();
+    pkt.imu.quat_w = sensors.getQuatW();
+    pkt.imu.quat_x = sensors.getQuatX();
+    pkt.imu.quat_y = sensors.getQuatY();
+    pkt.imu.quat_z = sensors.getQuatZ();
+    pkt.imu.roll   = sensors.getRoll();
+    pkt.imu.pitch  = sensors.getPitch();
+    pkt.imu.yaw    = sensors.getYaw();
+    pkt.imu.accel_x = sensors.getAccelX();
+    pkt.imu.accel_y = sensors.getAccelY();
+    pkt.imu.accel_z = sensors.getAccelZ();
+    pkt.imu.gyro_x  = sensors.getGyroX();
+    pkt.imu.gyro_y  = sensors.getGyroY();
+    pkt.imu.gyro_z  = sensors.getGyroZ();
+    pkt.imu.mag_x   = sensors.getMagX();
+    pkt.imu.mag_y   = sensors.getMagY();
+    pkt.imu.mag_z   = sensors.getMagZ();
+    pkt.imu.temperature = sensors.getTemperature();
+
+    // --- Шаговые моторы (заглушки, пока нет API) ---
+    pkt.stepper_x.angle     = 0.0f;
+    pkt.stepper_x.speed     = 0.0f;
+    pkt.stepper_x.direction = 0;
+    pkt.stepper_x.state     = 0;
+
+    pkt.stepper_y.angle     = 0.0f;
+    pkt.stepper_y.speed     = 0.0f;
+    pkt.stepper_y.direction = 0;
+    pkt.stepper_y.state     = 0;
+
+    // --- Сервоприводы (заглушки) ---
+    for (int i = 0; i < 8; i++) {
+        pkt.servo_angles[i] = 0;
+    }
+
+    // --- Системное состояние ---
+    pkt.system.current_cmd  = (uint8_t)g_currentCommand;
+    pkt.system.status_flags = g_statusFlags;
+    pkt.system.wifi_rssi    = (int8_t)WiFi.RSSI();
+    pkt.system.uptime_ms    = millis();
+
+    // --- Заголовок + CRC + отправка ---
+    finalizePacket(pkt);
+
+    IPAddress destIP = _clientIPSet ? _clientIP : IPAddress(255, 255, 255, 255);
+    _udpTelemetry.beginPacket(destIP, _telemetryPort);  // ★ используем _telemetryPort
+    _udpTelemetry.write((const uint8_t*)&pkt, sizeof(TelemetryPacket));
+    _udpTelemetry.endPacket();
+}
+
+// ============================================================
+//  Приём команд
 // ============================================================
 
 bool NetworkManager::receiveCommand(void* cmdBuf, size_t bufSize) {
     int packetSize = _udpCommand.parsePacket();
     if (packetSize <= 0) return false;
 
-    // Читаем пакет
     uint8_t rxBuffer[256];
     size_t readLen = _udpCommand.read(rxBuffer, sizeof(rxBuffer));
 
-    // Запомнить IP клиента (для последующей отправки телеметрии)
     _clientIP = _udpCommand.remoteIP();
     _clientIPSet = true;
 
-    // Минимальная проверка: заголовок + CRC
     if (readLen < 4) return false;
-
-    // Проверить заголовок
-    if (rxBuffer[0] != TELEMETRY_HEADER_BYTE_0 ||
-        rxBuffer[1] != TELEMETRY_HEADER_BYTE_1) {
+    if (rxBuffer[0] != TELEMETRY_HEADER_BYTE_0 || rxBuffer[1] != TELEMETRY_HEADER_BYTE_1)
         return false;
-    }
 
-    // Проверить CRC (последние 2 байта — контрольная сумма)
-    uint16_t receivedCRC = (uint16_t)(rxBuffer[readLen - 2] << 8) |
-                           rxBuffer[readLen - 1];
+    uint16_t receivedCRC = (uint16_t)(rxBuffer[readLen - 2] << 8) | rxBuffer[readLen - 1];
     uint16_t calcCRC = calcCRC16(rxBuffer, readLen - 2);
+    if (receivedCRC != calcCRC) return false;
 
-    if (receivedCRC != calcCRC) {
-        Serial.println("[NET] Command CRC mismatch!");
-        return false;
-    }
-
-    // Скопировать полезную нагрузку в буфер вызывающего
-    size_t payloadSize = readLen - 2; // минус CRC
+    size_t payloadSize = readLen - 2;
     if (payloadSize > bufSize) payloadSize = bufSize;
     memcpy(cmdBuf, rxBuffer, payloadSize);
-
     return true;
 }
 
 // ============================================================
-//  Статус
+//  Вспомогательные методы
 // ============================================================
 
 bool NetworkManager::isConnected() const {
     return WiFi.isConnected();
 }
 
-// ============================================================
-//  Внутренние методы
-// ============================================================
-
 uint16_t NetworkManager::calcCRC16(const uint8_t* data, size_t len) const {
-    // Используем встроенную ESP-IDF функцию
-    // Полином 0x8408 (reflected CCITT), начальное значение 0xFFFF
     return esp_crc16_le(UINT16_MAX, data, len);
 }
 
 void NetworkManager::finalizePacket(TelemetryPacket& pkt) {
-    // Заголовок
     pkt.header[0] = TELEMETRY_HEADER_BYTE_0;
     pkt.header[1] = TELEMETRY_HEADER_BYTE_1;
-
-    // ID пакета (инкремент, wrap-around)
     pkt.packet_id = _packetId++;
-
-    // Timestamp
     pkt.timestamp_ms = millis();
 
-    // CRC16 считается для всего пакета КРОМЕ поля crc16
     size_t crcLen = sizeof(TelemetryPacket) - sizeof(uint16_t);
     pkt.crc16 = calcCRC16((const uint8_t*)&pkt, crcLen);
 }

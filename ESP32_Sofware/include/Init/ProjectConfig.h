@@ -41,6 +41,10 @@ constexpr uint16_t SERVO_MAX_US = 2500;
 constexpr uint8_t SERVO_CH_ROLL_A = 0;
 constexpr uint8_t SERVO_CH_ROLL_B = 1;
 
+// --- UDP порты (из архитектуры) ---
+constexpr uint16_t UDP_TELEMETRY_PORT = 8888;
+constexpr uint16_t UDP_COMMAND_PORT   = 8889;
+
 // ============================================================
 // ENUM ДАТЧИКОВ ОРИЕНТАЦИИ (для SensorManager)
 // ============================================================
@@ -53,7 +57,6 @@ enum class OrientationSensor : uint8_t
 
 // ============================================================
 // КОНФИГ ШАГОВЫХ ДВИГАТЕЛЕЙ
-// (структура восстановлена под StepperController.cpp)
 // ============================================================
 struct StepperAxisConfig
 {
@@ -66,17 +69,18 @@ struct StepperConfig
 {
     static constexpr uint8_t MAX_AXES = 2;
 
-    uint8_t count = 0; // количество активных осей
+    uint8_t count = 0;
     StepperAxisConfig axes[MAX_AXES];
 
-    uint8_t enablePin = 0;       // общий EN
-    bool enableActiveLow = true; // B1206: ENA- активен низким
+    uint8_t enablePin = 0;
+    bool enableActiveLow = true;
 
-    float stepsPerRev = 200.0f; // NEMA23, 1.8°/шаг
+    float stepsPerRev = 200.0f;
     float microstep = 1.0f;
 };
+
 // ============================================================
-// КОНФИГ I2C (для SystemInit.cpp)
+// КОНФИГ I2C
 // ============================================================
 struct I2CConfig
 {
@@ -86,7 +90,7 @@ struct I2CConfig
 };
 
 // ============================================================
-// КОНФИГ СЕРВОПРИВОДОВ (для SystemInit.cpp)
+// КОНФИГ СЕРВОПРИВОДОВ
 // ============================================================
 struct ServoConfig
 {
@@ -94,22 +98,61 @@ struct ServoConfig
     float frequencyHz = PCA9685_FREQ_HZ;
     uint16_t minUs = SERVO_MIN_US;
     uint16_t maxUs = SERVO_MAX_US;
-    uint8_t count = 8; // 8x TD-7120MG из архитектуры
+    uint8_t count = 8; // 8x TD-7120MG
 };
+
+// ============================================================
+// ★ НОВЫЙ: КОНФИГ СЕТИ (UDP телеметрия и команды)
+// ============================================================
+struct NetworkConfig
+{
+    uint16_t telemetryPort     = UDP_TELEMETRY_PORT; // 8888
+    uint16_t commandPort       = UDP_COMMAND_PORT;   // 8889
+    uint32_t telemetryPeriodMs = 20;                 // 50 Гц (networkTask)
+    uint32_t wifiConnectTimeoutMs = 5000;            // 5 сек неблокирующий таймаут
+    bool     useCaptivePortal  = true;               // Captive portal при отсутствии credentials
+};
+
+// ============================================================
+// ★ НОВЫЙ: КОНФИГ УПРАВЛЕНИЯ И ЗАДАЧ FreeRTOS
+// ============================================================
+struct ControlConfig
+{
+    uint32_t loopPeriodMs      = 20;    // 50 Гц (controlTask)
+    uint32_t sensorPeriodMs    = 10;    // 100 Гц (sensorTask)
+
+    // Привязка задач к ядрам (из архитектуры)
+    uint8_t controlTaskCore    = 1;
+    uint8_t controlTaskPriority = 3;
+
+    uint8_t sensorTaskCore     = 1;
+    uint8_t sensorTaskPriority = 2;
+
+    uint8_t networkTaskCore    = 0;
+    uint8_t networkTaskPriority = 2;
+
+    uint8_t wifiTaskCore       = 0;
+    uint8_t wifiTaskPriority   = 1;
+};
+
 // ============================================================
 // ОБЩИЙ КОНФИГ ПРОЕКТА
-// (используется в SystemInit.cpp, SensorManager.cpp)
 // ============================================================
 struct ProjectConfig
 {
     OrientationSensor orientationSensor = OrientationSensor::BMX055;
-    StepperConfig stepper;
+
+    StepperConfig   stepper;
+    ServoConfig     servo;
+    I2CConfig       i2c;
     control::JoystickConfig joystick;
-    I2CConfig i2c;       // <-- ДОБАВЛЕНО
-    ServoConfig servo;   // <-- ДОБАВЛЕНО
+
+    // ★ НОВЫЕ ПОЛЯ
+    NetworkConfig   network;
+    ControlConfig   control;
 };
 
-// Функция-фабрика (реализация в ProjectConfig.cpp)
+// Функция-фабрика
 ProjectConfig GetProjectConfig();
 
 // ============================================================
