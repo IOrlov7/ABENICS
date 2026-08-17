@@ -1,15 +1,12 @@
 #include <Arduino.h>
-#include "Init/ProjectConfig.h"
+#include "Init/SystemInit.h"
 #include "Control/JoystickHandler.h"
 #include "Control/ManipulatorControl.h"
-#include "Motors/Nema23/StepperController.h"
-#include "Motors/TD7120MG/ServoController.h"
 
 control::ManipulatorState g_manipState;
-// Глобальные контроллеры (определение, не extern!)
-StepperController g_stepperCtrl;
-ServoController g_servoCtrl;
 
+// --- Задача управления: джойстик + моторы (50 Гц) ---
+// Работает ВСЕГДА, независимо от Wi-Fi
 void controlTask(void* pvParameters) {
     TickType_t lastWakeTime = xTaskGetTickCount();
     const TickType_t period = pdMS_TO_TICKS(20);
@@ -23,47 +20,52 @@ void controlTask(void* pvParameters) {
     }
 }
 
+// --- Задача сети: UDP телеметрия ---
+// Если Wi-Fi не подключен — просто пропускает отправку
+void networkTask(void* pvParameters) {
+    TickType_t lastWakeTime = xTaskGetTickCount();
+    const TickType_t period = pdMS_TO_TICKS(50); // 20 Гц для сети достаточно
+
+    for (;;) {
+        if (System_WiFiConnected()) {
+            // Отправка телеметрии по UDP
+            // network.sendTelemetry(packet);
+        }
+        // Если Wi-Fi нет — просто спим, не блокируем ничего
+        vTaskDelayUntil(&lastWakeTime, period);
+    }
+}
+
 void setup() {
     Serial.begin(115200);
     delay(2000);
     Serial.println(F("=== ABENICS Controller Starting ==="));
 
-    // Получаем единый конфиг проекта
-    ProjectConfig cfg = GetProjectConfig();
-
-    // StepperController
-    if (!g_stepperCtrl.begin(cfg.stepper)) {
-        Serial.println(F("[ERROR] StepperController init failed!"));
-        while(1) { delay(1000); }
+    // Инициализация ВСЕХ систем.
+    // Wi-Fi не блокирует: если не подключился — поднимет AP в фоне.
+    // Джойстик и моторы инициализируются ВСЕГДА.
+    if (!System_Init()) {
+        Serial.println(F("[FATAL] System init failed!"));
+        while (1) { delay(1000); }
     }
-    Serial.println(F("[OK] StepperController initialized"));
 
-    // ServoController
-    if (!g_servoCtrl.begin(PCA9685_ADDRESS, PCA9685_FREQ_HZ, SERVO_MIN_US, SERVO_MAX_US)) {
-        Serial.println(F("[ERROR] ServoController init failed!"));
-        while(1) { delay(1000); }
-    }
-    Serial.println(F("[OK] ServoController initialized"));
+    // Запуск всех задач FreeRTOS
+    System_StartTasks();
 
-    // Joystick
-    control::joystick().init(cfg.joystick);
-    Serial.println(F("[OK] Joystick initialized"));
-
-    g_stepperCtrl.enableAll();
-    Serial.println(F("[OK] Steppers enabled"));
-
-    g_servoCtrl.setServoAngle(SERVO_CH_ROLL_A, 135.0f);
-    g_servoCtrl.setServoAngle(SERVO_CH_ROLL_B, 135.0f);
-    Serial.println(F("[OK] Servos at center"));
-
-    if (xTaskCreate(controlTask, "ControlTask", 4096, NULL, 3, NULL) != pdPASS) {
-        Serial.println(F("[ERROR] Failed to create ControlTask!"));
-        while(1) { delay(1000); }
-    }
-    Serial.println(F("[OK] ControlTask started at 50 Hz"));
-    Serial.println(F("=== Setup complete ==="));
+    Serial.println(F("=== Setup complete. Joystick control ACTIVE. ==="));
 }
 
 void loop() {
-    delay(1000);
+    // Serial мониторинг (работает ВСЕГДА, даже без Wi-Fi)
+    if (Serial.available()) {
+        char c = Serial.read();
+        if (c == 's' || c == 'S') {
+            // Печать статуса по команде из Serial
+            Serial.println(F("=== System Status ==="));
+            Serial.print(F("WiFi: "));
+            Serial.println(System_WiFiConnected() ? F("Connected") : F("Not connected (joystick mode)"));
+            // Здесь можно добавить печать состояния моторов, датчиков и т.д.
+        }
+    }
+    delay(10);
 }

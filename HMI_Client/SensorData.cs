@@ -1,17 +1,40 @@
-// SensorData.cs
-namespace IMU_Visualizer
+using System.Runtime.InteropServices;
+
+namespace HMI_Client
 {
-    public struct SensorData
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    public struct TelemetryPacket
     {
-        public float Temperature;
-        public float AccX, AccY, AccZ;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 4)]
+        public byte[] Header;
+        public uint PacketId;
+        public uint Timestamp;
+
+        // IMU
+        public float ImuTemp;
+        public float AccelX, AccelY, AccelZ;
         public float QuatW, QuatX, QuatY, QuatZ;
         public float Roll, Pitch, Yaw;
 
-        public override string ToString() =>
-            $"T:{Temperature:F1}  " +
-            $"A:[{AccX:F2},{AccY:F2},{AccZ:F2}]  " +
-            $"Q:[{QuatW:F3},{QuatX:F3},{QuatY:F3},{QuatZ:F3}]  " +
-            $"RPY:[{Roll:F1},{Pitch:F1},{Yaw:F1}]";
+        // Моторы
+        public float MotorXAngle;
+        public float MotorYAngle;
+        public byte MotorXState;
+        public byte MotorYState;
+
+        // Серво
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 8)]
+        public float[] ServoAngles;
+
+        // Геймпад
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 4)]
+        public float[] JoyAxes;
+        public ushort JoyButtons;
+        public byte ControlMode;
+
+        // Система
+        public sbyte WifiRssi;
+        public byte SystemFlags;
+        public ushort Checksum;
     }
 }
