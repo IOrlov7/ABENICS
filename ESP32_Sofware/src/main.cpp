@@ -3,10 +3,12 @@
 #include "Control/JoystickHandler.h"
 #include "Control/ManipulatorControl.h"
 
+// Глобальное состояние манипулятора (используется в controlTask)
 control::ManipulatorState g_manipState;
 
 // --- Задача управления: джойстик + моторы (50 Гц) ---
 // Работает ВСЕГДА, независимо от Wi-Fi
+// (Объявлена как extern в SystemInit.cpp для регистрации в FreeRTOS)
 void controlTask(void* pvParameters) {
     TickType_t lastWakeTime = xTaskGetTickCount();
     const TickType_t period = pdMS_TO_TICKS(20);
@@ -20,25 +22,9 @@ void controlTask(void* pvParameters) {
     }
 }
 
-// --- Задача сети: UDP телеметрия ---
-// Если Wi-Fi не подключен — просто пропускает отправку
-void networkTask(void* pvParameters) {
-    TickType_t lastWakeTime = xTaskGetTickCount();
-    const TickType_t period = pdMS_TO_TICKS(50); // 20 Гц для сети достаточно
-
-    for (;;) {
-        if (System_WiFiConnected()) {
-            // Отправка телеметрии по UDP
-            // network.sendTelemetry(packet);
-        }
-        // Если Wi-Fi нет — просто спим, не блокируем ничего
-        vTaskDelayUntil(&lastWakeTime, period);
-    }
-}
-
 void setup() {
     Serial.begin(115200);
-    delay(2000);
+    delay(2000); // Задержка для стабильного старта Serial
     Serial.println(F("=== ABENICS Controller Starting ==="));
 
     // Инициализация ВСЕХ систем.
@@ -49,7 +35,7 @@ void setup() {
         while (1) { delay(1000); }
     }
 
-    // Запуск всех задач FreeRTOS
+    // Запуск всех задач FreeRTOS (включая networkTask из SystemInit.cpp)
     System_StartTasks();
 
     Serial.println(F("=== Setup complete. Joystick control ACTIVE. ==="));
@@ -64,7 +50,11 @@ void loop() {
             Serial.println(F("=== System Status ==="));
             Serial.print(F("WiFi: "));
             Serial.println(System_WiFiConnected() ? F("Connected") : F("Not connected (joystick mode)"));
-            // Здесь можно добавить печать состояния моторов, датчиков и т.д.
+            
+            // Дополнительная отладочная информация
+            Serial.print(F("Uptime: "));
+            Serial.print(millis() / 1000);
+            Serial.println(F(" sec"));
         }
     }
     delay(10);

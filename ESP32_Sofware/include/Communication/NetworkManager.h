@@ -1,91 +1,55 @@
 #pragma once
+
 #include <WiFi.h>
 #include <WiFiUdp.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+
 #include "TelemetryPacket.h"
 
-// Структура команд от ПК
-#pragma pack(push, 1)
-struct CommandPacket {
-    uint8_t header[4] = {'C', 'M', 'D', '!'};
-    uint8_t commandType;    // 1=ESTOP, 2=SET_MODE, 3=CALIBRATE
-    float payload[4];
-    uint16_t checksum;
-};
-#pragma pack(pop)
+// Порты (из архитектуры)
+#define UDP_TELEMETRY_PORT  8888
+#define UDP_COMMAND_PORT    8889
 
 class NetworkManager {
-private:
-    WiFiUDP _udpTelemetry;
-    WiFiUDP _udpCommands;
-
-    uint16_t _telemetryPort = 8888;
-    uint16_t _commandPort   = 8889;
-
-    IPAddress _targetIP;
-    uint32_t _packetId = 0;
-    unsigned long _successCount = 0;
-    unsigned long _errorCount = 0;
-
 public:
-    NetworkManager(const IPAddress& defaultIP = IPAddress(255, 255, 255, 255))
-        : _targetIP(defaultIP) {}
+    NetworkManager();
+    ~NetworkManager();
 
-    // ← ИСПРАВЛЕНО: begin() без аргументов.
-    // Wi-Fi уже подключен через WiFiProvisioning.
-    // Здесь только открываем UDP-сокеты.
-    void begin() {
-        _udpTelemetry.begin(_telemetryPort);
-        _udpCommands.begin(_commandPort);
-        Serial.printf("[UDP] Telemetry port: %d, Command port: %d\n",
-                      _telemetryPort, _commandPort);
-    }
+    // Инициализация UDP-сокетов
+    void begin();
 
-    void setTargetIP(const IPAddress& ip) {
-        _targetIP = ip;
-        Serial.println("[UDP] Target IP set to: " + _targetIP.toString());
-    }
+    // Отправка телеметрии (вызывается из networkTask)
+    // Возвращает true если пакет успешно отправлен
+    bool sendTelemetry(TelemetryPacket& pkt);
 
-    bool sendTelemetry(TelemetryPacket& packet) {
-        if (WiFi.status() != WL_CONNECTED) return false;
+    // Приём команды (вызывается из networkTask)
+    // Возвращает true если пакет получен и CRC валидна
+    bool receiveCommand(void* cmdBuf, size_t bufSize);
 
-        packet.packetId = ++_packetId;
-        packet.timestamp = millis();
-        packet.wifi_rssi = WiFi.RSSI();
+    // Статус
+    bool isConnected() const;
 
-        _udpTelemetry.beginPacket(_targetIP, _telemetryPort);
-        _udpTelemetry.write((uint8_t*)&packet, sizeof(TelemetryPacket));
-        int result = _udpTelemetry.endPacket();
+private:
+    // Расчёт CRC16 для пакета (используем встроенный esp_crc.h)
+    uint16_t calcCRC16(const uint8_t* data, size_t len) const;
 
-        if (result == 1) {
-            _successCount++;
-            return true;
-        } else {
-            _errorCount++;
-            return false;
-        }
-    }
+    // Заполнить заголовок и CRC в пакете
+    void finalizePacket(TelemetryPacket& pkt);
 
-    bool receiveCommand(CommandPacket& cmd) {
-        int packetSize = _udpCommands.parsePacket();
-        if (packetSize == sizeof(CommandPacket)) {
-            _udpCommands.read((uint8_t*)&cmd, sizeof(CommandPacket));
-            // Проверка заголовка
-            if (cmd.header[0] == 'C' && cmd.header[1] == 'M' &&
-                cmd.header[2] == 'D' && cmd.header[3] == '!') {
-                return true;
-            }
-        }
-        return false;
-    }
+    WiFiUDP _udpTelemetry;   // Порт 8888 (телеметрия, отправка)
+    WiFiUDP _udpCommand;     // Порт 8889 (команды, приём)
 
-    void printStatus() const {
-        Serial.println("\n--- UDP Status ---");
-        Serial.printf("WiFi Connected: %s\n",
-                      WiFi.status() == WL_CONNECTED ? "YES" : "NO");
-        Serial.println("Local IP:       " + WiFi.localIP().toString());
-        Serial.println("Target IP:      " + _targetIP.toString());
-        Serial.printf("Packets OK:     %lu\n", _successCount);
-        Serial.printf("Packets Failed: %lu\n", _errorCount);
-        Serial.println("------------------\n");
-    }
+    uint16_t _packetId;      // Инкрементируемый ID пакета
+
+    // Мьютекс для защиты shared data (IMU, моторы)
+    SemaphoreHandle_t _mutex;
+
+    // IP-адрес клиента (куда отправляем телеметрию)
+    // Определяется при получении первой команды или задаётся вручную
+    IPAddress _clientIP;
+    bool _clientIPSet;
 };
+
+// Глобальный экземпляр (объявлен в SystemInit.cpp)
+extern NetworkManager g_network;
