@@ -1,90 +1,57 @@
-#pragma once
+#ifndef SENSOR_MANAGER_H
+#define SENSOR_MANAGER_H
 
+#include "DataBlock.h" // Для GlobalDataBlock, LocalDataBlock
+// ★ УБРАТЬ: #include "MPU6500/MPU6500_Handler.h" (только в .cpp)
+// ★ УБРАТЬ: #include "ProjectConfig.h" (не нужен для сигнатуры begin)
 #include <Arduino.h>
-#include <Wire.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/semphr.h>
-#include <freertos/task.h>
+#include <Wire.h> // Для TwoWire
 
-#include "Communication/TelemetryPacket.h"
-#include "Init/ProjectConfig.h"
-
-class MPU6500_Handler;
-class BMX055_Handler;
-class Orientation_Handler;
-
-struct EncoderData {
-    float angleDeg    = 0.0f;
-    float velocityDps = 0.0f;
-    uint16_t rawValue = 0;
-    bool valid        = false;
-};
-
-struct SensorDataBlock {
-    IMU_Data    imu;
-    EncoderData encoderX;
-    EncoderData encoderY;
-    uint32_t    lastUpdateMs = 0;
-};
+class MPU6500_Handler; // ★ Предварительное объявление
 
 class SensorManager {
-private:
-    TwoWire _wire;
-    
-    // ★ Храним указатели на оба типа Handler'ов
-    MPU6500_Handler* _mpu6500 = nullptr;
-    BMX055_Handler*  _bmx055  = nullptr;
-    
-    Orientation_Handler* _orientationHandler = nullptr;
-
-    SensorDataBlock           _data;
-    mutable SemaphoreHandle_t _mutex;
-    TaskHandle_t              _taskHandle;
-    uint32_t                  _updatePeriodMs;
-    bool                      _initialized;
-    OrientationSensor         _currentImuType;
-
-    SensorManager();
-
-    void readImu();
-    void readEncoders();
-    
-    static void sensorTaskEntry(void* param);
-    void sensorTaskLoop();
-
 public:
-    ~SensorManager();
-
-    SensorManager(const SensorManager&) = delete;
-    SensorManager& operator=(const SensorManager&) = delete;
-
     static SensorManager& instance();
 
-    bool begin(const ProjectConfig& config);
-    bool startTask(uint8_t coreId = 1, uint8_t priority = 2);
+    // ★ ИЗМЕНЁН: Принимает только адрес и ссылку на Wire
+    bool begin(uint8_t address, TwoWire& wireRef);
 
-    bool getImuData(IMU_Data& out) const;
-    bool getSensorData(SensorDataBlock& out) const;
+    void update(); // Опрос датчика
+    void calibrate(); // Калибровка
 
-    float   getQuatW()  const;
-    float   getQuatX()  const;
-    float   getQuatY()  const;
-    float   getQuatZ()  const;
-    float   getRoll()   const;
-    float   getPitch()  const;
-    float   getYaw()    const;
-    int16_t getAccelX() const;
-    int16_t getAccelY() const;
-    int16_t getAccelZ() const;
-    int16_t getGyroX()  const;
-    int16_t getGyroY()  const;
-    int16_t getGyroZ()  const;
-    int16_t getMagX()   const;
-    int16_t getMagY()   const;
-    int16_t getMagZ()   const;
-    float   getTemperature() const;
+    // ★ Геттеры для NetworkManager
+    float getQuatW() const;
+    float getQuatX() const;
+    float getQuatY() const;
+    float getQuatZ() const;
+    float getRoll() const;
+    float getPitch() const;
+    float getYaw() const;
+    float getAccelX() const;
+    float getAccelY() const;
+    float getAccelZ() const;
+    float getGyroX() const;
+    float getGyroY() const;
+    float getGyroZ() const;
+    float getMagX() const;
+    float getMagY() const;
+    float getMagZ() const;
+    float getTemperature() const;
 
-    bool calibrateImu(uint16_t samples);
-    bool isReady() const;
-    const char* getCurrentImuName() const;
+    // ★ Запуск задачи
+    void startTask(uint8_t coreId, uint8_t priority);
+
+    // ★ Метод для проверки инициализации
+    bool isInitialized() const;
+
+private:
+    SensorManager() = default; // Singleton
+    static void taskEntry(void* arg);
+
+    MPU6500_Handler* _imuHandler = nullptr;
+    // ★ УБРАТЬ: SensorType _type = SensorType::UNKNOWN;
+    bool _initialized = false;
+    // Добавьте сюда поля для фильтра Маджвика или других вычислений, если нужно
 };
+
+#endif // SENSOR_MANAGER_H

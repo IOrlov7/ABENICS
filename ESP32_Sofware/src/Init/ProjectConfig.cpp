@@ -5,7 +5,8 @@ ProjectConfig GetProjectConfig()
     ProjectConfig cfg;
 
     // --- Датчик ориентации ---
-    cfg.orientationSensor = OrientationSensor::BMX055; // или MPU6500
+    // cfg.orientationSensor = OrientationSensor::BMX055; // или MPU6500
+    cfg.orientationSensor = OrientationSensor::MPU6500; // или MPU6500
     // --- IMU ---
     cfg.imu.mpu6500Address = 0x68;
     cfg.imu.bmx055AccelAddress = 0x19;

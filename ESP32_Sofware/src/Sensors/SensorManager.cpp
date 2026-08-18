@@ -1,237 +1,119 @@
 #include "Sensors/SensorManager.h"
-#include "Sensors/MPU6500/MPU6500_Handler.h"
-#include "Sensors/BMX055/BMX055_Handler.h"
-#include "Sensors/MPU6500/MPU6500_Orientation_Handler.h"
-#include "DataBlock.h"
+#include "Init/SystemInit.h" // Для System_GetConfig
+#include "Communication/NetworkManager.h" // Для g_statusFlags
+#include "HAL/I2CBus.h" // Для получения ссылки на Wire
+#include "DataBlock.h" // Для l_mpuData и g_mpuData
+#include "Sensors/MPU6500/MPU6500_Handler.h" // Теперь включаем здесь
+#include <math.h> // Для вычислений углов (если нужно)
 
-GlobalDataBlock g_mpuData;
-LocalDataBlock  l_mpuData;
+// Используем внешние глобальные переменные из DataBlock.h
+// Глобальные переменные состояния (определены в SystemInit.cpp)
+extern volatile CommandId g_currentCommand; 
+extern volatile uint8_t   g_statusFlags;    
 
-SensorManager::SensorManager()
-    : _wire(0), _mutex(nullptr), _taskHandle(nullptr), _updatePeriodMs(10), _initialized(false), _currentImuType(OrientationSensor::NONE)
-{
-    memset(&_data, 0, sizeof(SensorDataBlock));
-    _mutex = xSemaphoreCreateMutex();
+// ★ РЕАЛЬНЫЕ ОПРЕДЕЛЕНИЯ (выделение памяти) для структур IMU
+GlobalDataBlock g_mpuData;        
+LocalDataBlock  l_mpuData; 
+
+// Используем фильтр Маджвика из Orientation.h (предполагается, что он уже инициализирован)
+// extern MadgwickFilter madgwickFilter; // Если используется
+
+SensorManager& SensorManager::instance() {
+    static SensorManager sm;
+    return sm;
 }
 
-SensorManager::~SensorManager()
-{
-    if (_taskHandle)
-        vTaskDelete(_taskHandle);
-    if (_mutex)
-        vSemaphoreDelete(_mutex);
-    delete _mpu6500;
-    delete _bmx055;
-    delete _orientationHandler;
-}
-
-SensorManager &SensorManager::instance()
-{
-    static SensorManager inst;
-    return inst;
-}
-
-bool SensorManager::begin(const ProjectConfig &config)
-{
-    _currentImuType = config.orientationSensor;
-
-    // ★ Создаём нужный Handler на основе конфига
-    switch (_currentImuType)
-    {
-    case OrientationSensor::MPU6500:
-    {
-        Serial.println("[SensorMgr] Creating MPU6500 handler");
-        _mpu6500 = new MPU6500_Handler(_wire, config.imu.mpu6500Address);
-        if (!_mpu6500->begin())
-        {
-            Serial.println("[SensorMgr] MPU6500 init FAILED");
-            return false;
-        }
-        Serial.println("[SensorMgr] Calibrating MPU6500...");
-        _mpu6500->calibrate(1000);
-        break;
+// ИЗМЕНЁННЫЙ begin()
+bool SensorManager::begin(uint8_t address, TwoWire& wireRef) {
+    // УПРОЩЁННО: всегда создаём MPU6500_Handler
+    _imuHandler = new MPU6500_Handler(wireRef, address); // Передаём ссылку
+    if (_imuHandler->begin()) {
+        Serial.printf("[SensorMgr] MPU6500 handler created and initialized at 0x%02X.\n", address);
+        _initialized = true; // Устанавливаем флаг инициализации
+        // Устанавливаем флаг исправности IMU
+        g_statusFlags |= static_cast<uint8_t>(StatusFlags::FLAG_IMU_OK);
+    } else {
+        Serial.printf("[SensorMgr] MPU6500 init FAILED at 0x%02X\n", address);
+        delete _imuHandler;
+        _imuHandler = nullptr;
+        _initialized = false; // Устанавливаем флаг неудачи
+        // Сбрасываем флаг исправности IMU
+        g_statusFlags &= ~static_cast<uint8_t>(StatusFlags::FLAG_IMU_OK);
     }
-
-    case OrientationSensor::BMX055:
-    {
-        Serial.println("[SensorMgr] Creating BMX055 handler");
-        BMX055_Addresses addrs; // ★ БЫЛО BMX055_Handler::I2CAddresses
-        addrs.accel = config.imu.bmx055AccelAddress;
-        addrs.gyro = config.imu.bmx055GyroAddress;
-        addrs.mag = config.imu.bmx055MagAddress;
-        _bmx055 = new BMX055_Handler(_wire, addrs);
-        if (!_bmx055->begin())
-        {
-            Serial.println("[SensorMgr] BMX055 init FAILED");
-            return false;
-        }
-        Serial.println("[SensorMgr] Calibrating BMX055...");
-        _bmx055->calibrate(1000);
-        break;
-    }
-
-    case OrientationSensor::NONE:
-    default:
-        Serial.println("[SensorMgr] ⚠ No IMU selected!");
-        return false;
-    }
-
-    // Фильтр Маджвика (один для всех IMU)
-    _orientationHandler = new Orientation_Handler(config.imu.filterSampleFreqHz);
-    _orientationHandler->begin();
-
-    _updatePeriodMs = config.control.sensorPeriodMs;
-    _initialized = true;
-
-    Serial.printf("[SensorMgr] Init OK, using %s\n", getCurrentImuName());
-    return true;
+    return _initialized;
 }
 
-bool SensorManager::startTask(uint8_t coreId, uint8_t priority)
-{
-    if (!_initialized)
-        return false;
+void SensorManager::update() {
+    if (_initialized && _imuHandler) {
+        // ★ Добавим проверку результата readData()
+        bool ok = _imuHandler->readData();
 
-    BaseType_t ok = xTaskCreatePinnedToCore(
-        sensorTaskEntry, "SensorTask", 4096, this,
-        priority, &_taskHandle, coreId);
-
-    return ok == pdPASS;
-}
-
-void SensorManager::sensorTaskEntry(void *param)
-{
-    static_cast<SensorManager *>(param)->sensorTaskLoop();
-}
-
-void SensorManager::sensorTaskLoop()
-{
-    TickType_t lastWakeTime = xTaskGetTickCount();
-
-    for (;;)
-    {
-        readImu();
-        vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(_updatePeriodMs));
-    }
-}
-
-// ★ Унифицированное чтение: вызывает readData() у нужного Handler'а
-void SensorManager::readImu()
-{
-    if (!_initialized)
-        return;
-
-    bool hasNewData = false;
-
-    // Вызываем readData() у того Handler'а, который был создан
-    if (_mpu6500)
-    {
-        hasNewData = _mpu6500->readData();
-    }
-    else if (_bmx055)
-    {
-        hasNewData = _bmx055->readData();
-    }
-
-    if (hasNewData && _orientationHandler)
-    {
-        // Данные уже в l_mpuData (записаны Handler'ом)
-        _orientationHandler->updateOrientation();
-
-        if (xSemaphoreTake(_mutex, pdMS_TO_TICKS(5)) == pdTRUE)
-        {
-            _data.imu.quat_w = l_mpuData.quatW;
-            _data.imu.quat_x = l_mpuData.quatX;
-            _data.imu.quat_y = l_mpuData.quatY;
-            _data.imu.quat_z = l_mpuData.quatZ;
-            _data.imu.roll = l_mpuData.roll;
-            _data.imu.pitch = l_mpuData.pitch;
-            _data.imu.yaw = l_mpuData.yaw;
-
-            _data.imu.accel_x = (int16_t)l_mpuData.accelX;
-            _data.imu.accel_y = (int16_t)l_mpuData.accelY;
-            _data.imu.accel_z = (int16_t)l_mpuData.accelZ;
-            _data.imu.gyro_x = (int16_t)l_mpuData.gyroX;
-            _data.imu.gyro_y = (int16_t)l_mpuData.gyroY;
-            _data.imu.gyro_z = (int16_t)l_mpuData.gyroZ;
-            _data.imu.mag_x = (int16_t)l_mpuData.magX;
-            _data.imu.mag_y = (int16_t)l_mpuData.magY;
-            _data.imu.mag_z = (int16_t)l_mpuData.magZ;
-            _data.imu.temperature = l_mpuData.temperature;
-
-            _data.lastUpdateMs = millis();
-            xSemaphoreGive(_mutex);
+        // ★ Отладка раз в секунду
+        static uint32_t lastPrint = 0;
+        if (millis() - lastPrint > 1000) {
+            Serial.printf("[SensorMgr] readData=%d | accel=(%.2f, %.2f, %.2f) | gyro=(%.2f, %.2f, %.2f)\n",
+                ok ? 1 : 0,
+                l_mpuData.accelX, l_mpuData.accelY, l_mpuData.accelZ,
+                l_mpuData.gyroX, l_mpuData.gyroY, l_mpuData.gyroZ);
+            lastPrint = millis();
         }
     }
 }
 
-// Геттеры (без изменений)
-bool SensorManager::getImuData(IMU_Data &out) const
-{
-    if (!_initialized)
-        return false;
-    if (xSemaphoreTake(_mutex, pdMS_TO_TICKS(10)) == pdTRUE)
-    {
-        out = _data.imu;
-        xSemaphoreGive(_mutex);
-        return true;
+void SensorManager::calibrate() {
+    if (_initialized && _imuHandler) {
+        _imuHandler->calibrate();
+        // Здесь можно обновить g_mpuData offsets
     }
-    return false;
 }
 
-bool SensorManager::getSensorData(SensorDataBlock &out) const
-{
-    if (!_initialized)
-        return false;
-    if (xSemaphoreTake(_mutex, pdMS_TO_TICKS(10)) == pdTRUE)
-    {
-        out = _data;
-        xSemaphoreGive(_mutex);
-        return true;
+// --- Реализация геттеров ---
+// Возвращают данные из l_mpuData (текущие) или g_mpuData (калибровочные), в зависимости от назначения
+
+// ★ ИСПРАВЛЕНО: camelCase
+float SensorManager::getQuatW() const { return l_mpuData.quatW; } // ★ ИСПРАВЛЕНО
+float SensorManager::getQuatX() const { return l_mpuData.quatX; } // ★ ИСПРАВЛЕНО
+float SensorManager::getQuatY() const { return l_mpuData.quatY; } // ★ ИСПРАВЛЕНО
+float SensorManager::getQuatZ() const { return l_mpuData.quatZ; } // ★ ИСПРАВЛЕНО
+
+float SensorManager::getRoll() const { return l_mpuData.roll; }   // Угол в градусах
+float SensorManager::getPitch() const { return l_mpuData.pitch; }
+float SensorManager::getYaw() const { return l_mpuData.yaw; }
+
+float SensorManager::getAccelX() const { return l_mpuData.accelX; }
+float SensorManager::getAccelY() const { return l_mpuData.accelY; }
+float SensorManager::getAccelZ() const { return l_mpuData.accelZ; }
+
+float SensorManager::getGyroX() const { return l_mpuData.gyroX; }
+float SensorManager::getGyroY() const { return l_mpuData.gyroY; }
+float SensorManager::getGyroZ() const { return l_mpuData.gyroZ; }
+
+float SensorManager::getMagX() const { return l_mpuData.magX; } // 0 для MPU6500
+float SensorManager::getMagY() const { return l_mpuData.magY; }
+float SensorManager::getMagZ() const { return l_mpuData.magZ; }
+
+float SensorManager::getTemperature() const { return l_mpuData.temperature; }
+
+bool SensorManager::isInitialized() const {
+    return _initialized;
+}
+
+void SensorManager::startTask(uint8_t coreId, uint8_t priority) {
+    if (_initialized) {
+        xTaskCreatePinnedToCore(taskEntry, "SensorTask", 8192, nullptr, priority, nullptr, coreId);
+        Serial.printf("[SensorMgr] Task started on Core %d with Priority %d\n", coreId, priority);
+    } else {
+        Serial.println("[SensorMgr] Cannot start task: not initialized.");
     }
-    return false;
 }
 
-float SensorManager::getQuatW() const { return _data.imu.quat_w; }
-float SensorManager::getQuatX() const { return _data.imu.quat_x; }
-float SensorManager::getQuatY() const { return _data.imu.quat_y; }
-float SensorManager::getQuatZ() const { return _data.imu.quat_z; }
-float SensorManager::getRoll() const { return _data.imu.roll; }
-float SensorManager::getPitch() const { return _data.imu.pitch; }
-float SensorManager::getYaw() const { return _data.imu.yaw; }
-int16_t SensorManager::getAccelX() const { return _data.imu.accel_x; }
-int16_t SensorManager::getAccelY() const { return _data.imu.accel_y; }
-int16_t SensorManager::getAccelZ() const { return _data.imu.accel_z; }
-int16_t SensorManager::getGyroX() const { return _data.imu.gyro_x; }
-int16_t SensorManager::getGyroY() const { return _data.imu.gyro_y; }
-int16_t SensorManager::getGyroZ() const { return _data.imu.gyro_z; }
-int16_t SensorManager::getMagX() const { return _data.imu.mag_x; }
-int16_t SensorManager::getMagY() const { return _data.imu.mag_y; }
-int16_t SensorManager::getMagZ() const { return _data.imu.mag_z; }
-float SensorManager::getTemperature() const { return _data.imu.temperature; }
+void SensorManager::taskEntry(void* arg) {
+    // ★ ИСПРАВЛЕНО: используем System_GetConfig().control.sensorPeriodMs
+    uint32_t period = System_GetConfig().control.sensorPeriodMs; // ★ ИСПРАВЛЕНО: sensorPeriodMs из ControlConfig
+    TickType_t lastWake = xTaskGetTickCount();
 
-bool SensorManager::calibrateImu(uint16_t samples)
-{
-    if (!_initialized)
-        return false;
-    if (_mpu6500)
-        return _mpu6500->calibrate(samples);
-    if (_bmx055)
-        return _bmx055->calibrate(samples);
-    return false;
-}
-
-bool SensorManager::isReady() const { return _initialized; }
-
-const char *SensorManager::getCurrentImuName() const
-{
-    switch (_currentImuType)
-    {
-    case OrientationSensor::MPU6500:
-        return "MPU6500";
-    case OrientationSensor::BMX055:
-        return "BMX055";
-    default:
-        return "NONE";
+    for (;;) {
+        SensorManager::instance().update();
+        vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(period));
     }
 }

@@ -2,6 +2,7 @@
 
 const char* WiFiProvisioning::AP_SSID = "ABENICS-Setup";
 const char* WiFiProvisioning::AP_PASS = "12345678";
+WiFiProvisioning* WiFiProvisioning::_instance = nullptr;
 
 const char* WiFiProvisioning::_htmlPage = R"rawliteral(
 <!DOCTYPE html>
@@ -17,7 +18,6 @@ const char* WiFiProvisioning::_htmlPage = R"rawliteral(
         button{width:100%;padding:14px;background:#0f8;color:#000;border:none;border-radius:4px;font-weight:bold;font-size:16px;cursor:pointer}
         .info{color:#888;font-size:12px;margin-top:16px}
         .status{padding:8px;border-radius:4px;margin-bottom:12px;font-size:13px}
-        .ok{background:#143;color:#0f8}
         .warn{background:#431;color:#fa0}
     </style>
 </head>
@@ -31,51 +31,120 @@ const char* WiFiProvisioning::_htmlPage = R"rawliteral(
         <input type='password' name='pass' placeholder="Пароль (можно пустой)">
         <button type='submit'>Сохранить и перезагрузить</button>
     </form>
-    <p class="info">После сохранения ESP32 перезагрузится и подключится к сети.<br>
-    Если пропустить — робот работает автономно с джойстика.</p>
+    <p class="info">После сохранения ESP32 перезагрузится и подключится к сети.</p>
     <p class="info"><a href="/scan" style="color:#0f8">📡 Сканировать сети</a></p>
 </body>
 </html>
 )rawliteral";
 
-void WiFiProvisioning::begin() {
-    _prefs.begin("wifi-creds", false);
-
-    String savedSSID = _prefs.getString("ssid", "");
-    String savedPass = _prefs.getString("pass", "");
-
-    // Если есть сохранённые данные — пробуем подключиться
-    if (savedSSID.length() > 0) {
-        Serial.printf("[WiFi] Trying saved network: '%s'\n", savedSSID.c_str());
-        WiFi.mode(WIFI_STA);
-        WiFi.begin(savedSSID.c_str(), savedPass.c_str());
-
-        unsigned long start = millis();
-        while (WiFi.status() != WL_CONNECTED && millis() - start < CONNECT_TIMEOUT_MS) {
-            delay(100);
-            Serial.print(".");
-        }
-        Serial.println();
-
-        if (WiFi.status() == WL_CONNECTED) {
-            _isConnected = true;
-            _isAPMode = false;
-            _provisioningDone = true;
-            Serial.printf("[WiFi] ✓ Connected! IP: %s\n", WiFi.localIP().toString().c_str());
-            _prefs.end();
-            return; // Успех — выходим, НЕ блокируем
-        }
-
-        Serial.println("[WiFi] ✗ Failed to connect within timeout.");
-    } else {
-        Serial.println("[WiFi] No saved credentials.");
+// ============================================================
+//  ★ ИСПРАВЛЕННЫЙ Деструктор — удаляем событие по ID
+// ============================================================
+WiFiProvisioning::~WiFiProvisioning() {
+    if (_server) {
+        delete _server;
+        _server = nullptr;
     }
-
-    // Не подключились — поднимаем AP в фоне, но НЕ блокируем
-    startAP();
-    _prefs.end();
+    // ★ Удаляем событие по сохранённому ID (работает во всех версиях)
+    if (_wifiEventId > 0) {
+        WiFi.removeEvent(_wifiEventId);
+        _wifiEventId = 0;
+    }
 }
 
+// ============================================================
+//  EVENT-DRIVEN CALLBACK
+// ============================================================
+void WiFiProvisioning::wifiEventCallback(WiFiEvent_t event, WiFiEventInfo_t info) {
+    if (!_instance) return;
+
+    switch (event) {
+        case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+            _instance->onWiFiConnected();
+            break;
+        case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+            _instance->onWiFiGotIP();
+            break;
+        case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+            _instance->onWiFiDisconnected();
+            break;
+        default:
+            break;
+    }
+}
+
+void WiFiProvisioning::onWiFiConnected() {
+    Serial.println("[WiFi] ✓ Ассоциация с AP выполнена.");
+}
+
+void WiFiProvisioning::onWiFiGotIP() {
+    _isConnected = true;
+    _isAPMode = false;
+    _provisioningDone = true;
+    Serial.printf("[WiFi] ✓ Connected! IP: %s\n", WiFi.localIP().toString().c_str());
+}
+
+void WiFiProvisioning::onWiFiDisconnected() {
+    if (_isConnected) {
+        Serial.println("[WiFi] ⚠ Соединение потеряно!");
+    }
+    _isConnected = false;
+    
+    if (!_isAPMode && _provisioningDone) {
+        Serial.println("[WiFi] Попытка переподключения...");
+    }
+}
+
+// ============================================================
+//  startSTA()
+// ============================================================
+void WiFiProvisioning::startSTA() {
+    _prefs.begin("wifi-creds", false);
+    String savedSSID = _prefs.getString("ssid", "");
+    String savedPass = _prefs.getString("pass", "");
+    _prefs.end();
+
+    if (savedSSID.length() == 0) {
+        Serial.println("[WiFi] No saved credentials.");
+        startAP();
+        return;
+    }
+
+    Serial.printf("[WiFi] Trying saved network: '%s' (non-blocking)\n", savedSSID.c_str());
+
+    WiFi.setAutoReconnect(true);
+    WiFi.persistent(true);
+
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(savedSSID.c_str(), savedPass.c_str());
+
+    _connectStartTime = millis();
+}
+
+// ============================================================
+//  ★ ИСПРАВЛЕННЫЙ begin() — сохраняем ID события
+// ============================================================
+void WiFiProvisioning::begin() {
+    _instance = this;
+
+    // ★ Регистрируем callback и СОХРАНЯЕМ возвращаемый ID
+    _wifiEventId = WiFi.onEvent(wifiEventCallback);
+    
+    if (_wifiEventId > 0) {
+        Serial.printf("[WiFi] Event handler registered (ID=%d)\n", _wifiEventId);
+    } else {
+        Serial.println("[WiFi] ⚠ Failed to register event handler!");
+    }
+
+    pinMode(RESET_BUTTON_PIN, INPUT_PULLUP);
+    delay(50);
+
+    startSTA();
+}
+
+// ============================================================
+//  startAP()
+// ============================================================
 void WiFiProvisioning::startAP() {
     WiFi.mode(WIFI_AP);
     WiFi.softAP(AP_SSID, AP_PASS);
@@ -86,8 +155,9 @@ void WiFiProvisioning::startAP() {
 
     Serial.printf("[WiFi] AP started: '%s' (pass: %s)\n", AP_SSID, AP_PASS);
     Serial.printf("[WiFi] Config URL: http://%s\n", WiFi.softAPIP().toString().c_str());
-    Serial.println("[WiFi] Robot continues to work with joystick. WiFi is optional.");
+    Serial.println("[WiFi] Robot continues to work with joystick.");
 
+    if (_server) delete _server;
     _server = new WebServer(80);
     _server->on("/", [this]() { handleRoot(); });
     _server->on("/save", HTTP_POST, [this]() { handleSave(); });
@@ -95,16 +165,96 @@ void WiFiProvisioning::startAP() {
     _server->begin();
 }
 
+// ============================================================
+//  handle()
+// ============================================================
 void WiFiProvisioning::handle() {
-    // Вызывается в цикле wifiTask
+    checkButtonInLoop();
+
     if (_isAPMode && _server) {
         _server->handleClient();
     }
 
-    // Периодическая проверка: вдруг Wi-Fi переподключился
-    if (_isConnected && WiFi.status() != WL_CONNECTED) {
-        _isConnected = false;
-        Serial.println("[WiFi] Connection lost!");
+    if (!_isConnected && !_isAPMode && WiFi.getMode() == WIFI_STA) {
+        if (millis() - _connectStartTime > CONNECT_TIMEOUT_MS) {
+            Serial.println("[WiFi] Таймаут подключения. Поднимаю AP...");
+            WiFi.disconnect(true);
+            startAP();
+        }
+    }
+
+    handleSerialCommands();
+}
+
+// ============================================================
+//  Кнопка сброса (GPIO25)
+// ============================================================
+void WiFiProvisioning::checkButtonInLoop() {
+    static uint32_t pressStartTime = 0;
+    static bool wasPressed = false;
+
+    bool isPressed = (digitalRead(RESET_BUTTON_PIN) == LOW);
+
+    if (isPressed) {
+        if (!wasPressed) {
+            pressStartTime = millis();
+            wasPressed = true;
+        } else {
+            if (millis() - pressStartTime >= 50) {
+                Serial.println("[WiFi] ⚠ Кнопка SMA (GPIO25) нажата! Сброс Wi-Fi...");
+                clearCredentials();
+                Serial.println("[WiFi] Перезагрузка через 1 секунду...");
+                delay(1000);
+                ESP.restart();
+            }
+        }
+    } else {
+        wasPressed = false;
+    }
+}
+
+void WiFiProvisioning::clearCredentials() {
+    Preferences prefs;
+    prefs.begin("wifi-creds", false);
+    prefs.clear();
+    prefs.end();
+}
+
+void WiFiProvisioning::handleSerialCommands() {
+    if (!Serial.available()) return;
+
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+
+    if (cmd == "WIFI_CLEAR") {
+        Serial.println("[WiFi] Команда: очистка credentials...");
+        clearCredentials();
+        Serial.println("[WiFi] Перезагрузка через 2 сек...");
+        delay(2000);
+        ESP.restart();
+    }
+    else if (cmd == "WIFI_STATUS") {
+        printStatus();
+    }
+    else if (cmd.startsWith("WIFI_SET ")) {
+        int spaceIdx = cmd.indexOf(' ', 9);
+        if (spaceIdx > 0) {
+            String ssid = cmd.substring(9, spaceIdx);
+            String pass = cmd.substring(spaceIdx + 1);
+
+            Serial.printf("[WiFi] Сохраняю: SSID='%s'\n", ssid.c_str());
+            Preferences prefs;
+            prefs.begin("wifi-creds", false);
+            prefs.putString("ssid", ssid);
+            prefs.putString("pass", pass);
+            prefs.end();
+
+            Serial.println("[WiFi] Перезагрузка через 2 сек...");
+            delay(2000);
+            ESP.restart();
+        } else {
+            Serial.println("[WiFi] Формат: WIFI_SET <SSID> <PASSWORD>");
+        }
     }
 }
 
@@ -172,7 +322,8 @@ void WiFiProvisioning::printStatus() const {
         Serial.println("AP SSID: " + String(AP_SSID));
         Serial.println("AP IP:   " + WiFi.softAPIP().toString());
     } else {
-        Serial.println("Mode:    IDLE");
+        Serial.println("Mode:    Connecting...");
+        Serial.printf("Elapsed: %lu ms\n", millis() - _connectStartTime);
     }
     Serial.println("-------------------\n");
 }

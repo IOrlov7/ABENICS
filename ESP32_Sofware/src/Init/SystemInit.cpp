@@ -1,3 +1,5 @@
+// src/Init/SystemInit.cpp (полный файл, без изменений в части taskEntry, но с правильным вызовом SensorManager::begin)
+
 #include "Init/SystemInit.h"
 
 #include "HAL/I2CBus.h"
@@ -40,6 +42,7 @@ static void wifiTask(void* parameter) {
 // ============================================================
 
 bool System_Init() {
+    Serial.println("=== ABENICS Controller Starting ===");
     Serial.println("[SysInit] === BEGIN ===");
 
     // 1. Загрузка конфигурации
@@ -58,14 +61,21 @@ bool System_Init() {
     auto& i2c = I2CBus::instance();
     if (!i2c.begin(g_config.i2c.sda, g_config.i2c.scl, g_config.i2c.frequencyHz)) {
         Serial.println("[SysInit] I2C init FAILED");
-        return false;
+        return false; // Не можем работать без I2C
     }
     Serial.println("[SysInit] I2C init OK");
     i2c.scan();
 
+    // ★ ВАЖНО: Добавляем задержку после сканирования I2C
+    delay(100); // Дать Wire отпустить мьютекс после скана
+
     // 3. Инициализация датчиков
-    if (!SensorManager::instance().begin(g_config)) {
+    // ★ ИСПРАВЛЕНО: используем g_config.imu.mpu6500Address
+    if (!SensorManager::instance().begin(g_config.imu.mpu6500Address, Wire)) { // передаём адрес и Wire
         Serial.println("[SysInit] SensorManager init FAILED");
+        // ★ НЕ ВОЗВРАЩАЕМ FALSE - система может работать без IMU (но с флагом ошибки)
+    } else {
+        Serial.println("[SysInit] SensorManager init OK");
     }
 
     // 4. Инициализация сервоприводов
@@ -86,14 +96,14 @@ bool System_Init() {
     } else {
         Serial.println("[SysInit] StepperController FAILED");
     }
-    g_stepperCtrl.disableAll();
+    g_stepperCtrl.disableAll(); // Шаговые выключены по умолчанию
 
     // 6. Wi-Fi (неблокирующий)
     Serial.println("[SysInit] WiFi init (non-blocking)...");
     g_wifi.begin();
     g_wifi.printStatus();
 
-    // 7. Сеть (UDP сокеты) — ★ порты из конфига
+    // 7. Сеть (UDP сокеты)
     g_network.begin(g_config.network.telemetryPort, g_config.network.commandPort);
     Serial.println("[SysInit] NetworkManager OK");
 
@@ -116,8 +126,12 @@ void System_StartTasks() {
         controlTask, "ControlTask", 4096, nullptr,
         cfg.controlTaskPriority, nullptr, cfg.controlTaskCore);
 
-    // Задача датчиков (Core 1, приоритет 2)
-    SensorManager::instance().startTask(cfg.sensorTaskCore, cfg.sensorTaskPriority);
+    // Задача датчиков (Core 1, приоритет 2) ★ Только если SensorManager инициализирован
+    if (SensorManager::instance().isInitialized()) { // ★ Используем новый метод
+        SensorManager::instance().startTask(cfg.sensorTaskCore, cfg.sensorTaskPriority);
+    } else {
+        Serial.println("[SysInit] Skipping SensorTask: SensorManager not ready.");
+    }
 
     // Задача Wi-Fi (Core 0, приоритет 1)
     xTaskCreatePinnedToCore(
@@ -128,6 +142,7 @@ void System_StartTasks() {
     g_network.startTask(cfg.networkTaskCore, cfg.networkTaskPriority);
 
     Serial.println("[SysInit] All tasks started");
+    Serial.println("=== Setup complete. Joystick control ACTIVE. ===");
 }
 
 // ============================================================

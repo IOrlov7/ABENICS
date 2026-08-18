@@ -2,15 +2,17 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
+    <TargetFramework>net8.0-windows</TargetFramework> <!-- Изменено на стабильную версию -->
     <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable> <!-- Включает строгую проверку null -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>NU1701;NU1702</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="HelixToolkit.Wpf" Version="3.1.2" />
-    <PackageReference Include="System.IO.Ports" Version="10.0.10" />
+    <!-- Современные версии, полностью совместимые с .NET 8/9/10 -->
+    <PackageReference Include="HelixToolkit.Wpf" Version="2.25.0" />
+    <PackageReference Include="LiveChartsCore.SkiaSharpView.WPF" Version="2.0.0" />
   </ItemGroup>
 
 </Project>

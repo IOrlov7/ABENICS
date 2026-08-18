@@ -1,331 +1,258 @@
 ﻿using System;
-using System.Globalization;
-using System.IO.Ports;
-using System.Threading;
-using System.Threading.Tasks;
+using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Media.Media3D;
 using System.Windows.Threading;
+using HelixToolkit.Wpf;
+using LiveChartsCore;
+using LiveChartsCore.SkiaSharpView;
+using LiveChartsCore.SkiaSharpView.Painting;
+using SkiaSharp;
+using HMI_Client; // Подключаем пространство имён, где определены TelemetryPacket, NetworkManager, CommandId и т.д.
 
 namespace IMU_Visualizer
 {
     public partial class MainWindow : Window
     {
-        // Настройки
-        private const int BaudRate = 921600;
-        private const double SlerpFactor = 0.35;
+        private NetworkManager _networkManager;
+        private TelemetryPacket? _lastPacket; // Теперь nullable
 
-        // COM
-        private SerialPort? serialPort;
-        private string rxBuffer = string.Empty;
-
-        // 3D
-        private readonly Transform3DGroup modelTransform = new Transform3DGroup();
-        private readonly QuaternionRotation3D modelRotation = new QuaternionRotation3D(Quaternion.Identity);
-
-        // Синхронизация данных
-        private readonly object dataLock = new object();
-        private Quaternion targetQuaternion = Quaternion.Identity;
-        private Quaternion displayQuaternion = Quaternion.Identity;
-        private bool hasNewQuaternion;
-        private bool hasDisplayQuaternion;
-        private double lastRoll, lastPitch, lastYaw, lastTemp;
-        private bool hasNewText;
-        private int packetCount;
-        private string lastPacketTime = "--";
-
-        // Таймеры
-        private readonly DispatcherTimer renderTimer = new DispatcherTimer();
-        private readonly DispatcherTimer rateTimer = new DispatcherTimer();
+        // Данные для графиков (последние 100 точек)
+        private const int MAX_POINTS = 100;
+        private ObservableCollection<double> _accelX = new ObservableCollection<double>();
+        private ObservableCollection<double> _accelY = new ObservableCollection<double>();
+        private ObservableCollection<double> _accelZ = new ObservableCollection<double>();
+        private ObservableCollection<double> _gyroX = new ObservableCollection<double>();
+        private ObservableCollection<double> _gyroY = new ObservableCollection<double>();
+        private ObservableCollection<double> _gyroZ = new ObservableCollection<double>();
 
         public MainWindow()
         {
             InitializeComponent();
-            InitializeSerialPorts();
-            Setup3DModel();
-            StartTimers();
+
+            _networkManager = new NetworkManager();
+            _networkManager.OnTelemetryReceived += OnTelemetryReceived;
+            _networkManager.OnLogMessage += OnLogMessage;
+
+            InitializeCharts(); // Инициализация графиков LiveCharts
+
+            // Таймер для обновления UI (например, для отображения частоты приёма)
+            var uiTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+            uiTimer.Tick += (s, e) => UpdateUiRateDisplay();
+            uiTimer.Start();
+
+            // Запуск сетевого менеджера
+            _networkManager.Start();
+
+            // Лог начального состояния
+            OnLogMessage("Клиент ABENICS запущен. Ожидание подключения ESP32...");
         }
 
-        private void InitializeSerialPorts()
+        protected override void OnClosed(EventArgs e)
         {
-            try
+            _networkManager.Stop();
+            base.OnClosed(e);
+        }
+
+        private void InitializeCharts()
+        {
+            // Настройка графика акселерометра
+            AccelChart.Series = new ISeries[]
             {
-                string[] ports = SerialPort.GetPortNames();
-                Array.Sort(ports);
-                CmbPort.ItemsSource = ports;
-                if (ports.Length > 0) CmbPort.SelectedIndex = 0;
-            }
-            catch { CmbPort.ItemsSource = new string[0]; }
-        }
-
-        private void Setup3DModel()
-        {
-            modelTransform.Children.Add(new RotateTransform3D(modelRotation));
-            ImuModel.Transform = modelTransform;
-        }
-
-        private void StartTimers()
-        {
-            renderTimer.Interval = TimeSpan.FromMilliseconds(33);
-            renderTimer.Tick += RenderTimer_Tick;
-            renderTimer.Start();
-
-            rateTimer.Interval = TimeSpan.FromSeconds(1);
-            rateTimer.Tick += RateTimer_Tick;
-            rateTimer.Start();
-        }
-
-        private void RenderTimer_Tick(object sender, EventArgs e)
-        {
-            lock (dataLock)
-            {
-                if (hasNewQuaternion)
+                new LineSeries<double>
                 {
-                    if (!hasDisplayQuaternion)
-                    {
-                        displayQuaternion = targetQuaternion;
-                        hasDisplayQuaternion = true;
-                    }
-                    else
-                    {
-                        targetQuaternion = MakeShortestPath(displayQuaternion, targetQuaternion);
-                        displayQuaternion = Quaternion.Slerp(displayQuaternion, targetQuaternion, SlerpFactor);
-                    }
-                    displayQuaternion.Normalize();
-                    modelRotation.Quaternion = displayQuaternion;
-                    hasNewQuaternion = false;
-                }
-
-                if (hasNewText)
+                    Values = _accelX,
+                    Name = "X",
+                    Stroke = new SolidColorPaint(SKColors.Blue) { StrokeThickness = 2 },
+                    GeometryStroke = null,
+                    GeometrySize = 0,
+                    Fill = null
+                },
+                new LineSeries<double>
                 {
-                    TxtRoll.Text = lastRoll.ToString("F1", CultureInfo.InvariantCulture) + "°";
-                    TxtPitch.Text = lastPitch.ToString("F1", CultureInfo.InvariantCulture) + "°";
-                    TxtYaw.Text = lastYaw.ToString("F1", CultureInfo.InvariantCulture) + "°";
-                    TxtTemp.Text = lastTemp.ToString("F1", CultureInfo.InvariantCulture) + " °C";
-                    hasNewText = false;
+                    Values = _accelY,
+                    Name = "Y",
+                    Stroke = new SolidColorPaint(SKColors.Green) { StrokeThickness = 2 },
+                    GeometryStroke = null,
+                    GeometrySize = 0,
+                    Fill = null
+                },
+                new LineSeries<double>
+                {
+                    Values = _accelZ,
+                    Name = "Z",
+                    Stroke = new SolidColorPaint(SKColors.Red) { StrokeThickness = 2 },
+                    GeometryStroke = null,
+                    GeometrySize = 0,
+                    Fill = null
                 }
-            }
+            };
 
-            TxtLastPacket.Text = $"Последний пакет: {lastPacketTime}";
+            AccelChart.XAxes = new Axis[] { new Axis { Labeler = value => "" } };
+            AccelChart.YAxes = new Axis[] { new Axis { Name = "m/s²" } };
+
+            // Настройка графика гироскопа
+            GyroChart.Series = new ISeries[]
+            {
+                new LineSeries<double>
+                {
+                    Values = _gyroX,
+                    Name = "X",
+                    Stroke = new SolidColorPaint(SKColors.Blue) { StrokeThickness = 2 },
+                    GeometryStroke = null,
+                    GeometrySize = 0,
+                    Fill = null
+                },
+                new LineSeries<double>
+                {
+                    Values = _gyroY,
+                    Name = "Y",
+                    Stroke = new SolidColorPaint(SKColors.Green) { StrokeThickness = 2 },
+                    GeometryStroke = null,
+                    GeometrySize = 0,
+                    Fill = null
+                },
+                new LineSeries<double>
+                {
+                    Values = _gyroZ,
+                    Name = "Z",
+                    Stroke = new SolidColorPaint(SKColors.Red) { StrokeThickness = 2 },
+                    GeometryStroke = null,
+                    GeometrySize = 0,
+                    Fill = null
+                }
+            };
+
+            GyroChart.XAxes = new Axis[] { new Axis { Labeler = value => "" } };
+            GyroChart.YAxes = new Axis[] { new Axis { Name = "°/s" } };
         }
 
-        private void RateTimer_Tick(object sender, EventArgs e)
+        // Метод обновления данных графиков (вызывайте при получении нового пакета)
+        private void UpdateChartData(float ax, float ay, float az, float gx, float gy, float gz)
         {
-            int count = Interlocked.Exchange(ref packetCount, 0);
-            TxtPacketRate.Text = $"{count} Hz";
+            // Добавляем новые точки
+            _accelX.Add(ax);
+            _accelY.Add(ay);
+            _accelZ.Add(az);
+            _gyroX.Add(gx);
+            _gyroY.Add(gy);
+            _gyroZ.Add(gz);
 
-            var port = serialPort;
-            if (port != null && port.IsOpen)
+            // Удаляем старые точки, если превышен лимит
+            if (_accelX.Count > MAX_POINTS) _accelX.RemoveAt(0);
+            if (_accelY.Count > MAX_POINTS) _accelY.RemoveAt(0);
+            if (_accelZ.Count > MAX_POINTS) _accelZ.RemoveAt(0);
+            if (_gyroX.Count > MAX_POINTS) _gyroX.RemoveAt(0);
+            if (_gyroY.Count > MAX_POINTS) _gyroY.RemoveAt(0);
+            if (_gyroZ.Count > MAX_POINTS) _gyroZ.RemoveAt(0);
+        }
+
+        private void OnTelemetryReceived(TelemetryPacket packet)
+        {
+            _lastPacket = packet; // Сохраняем как nullable
+
+            // Обновление UI должно происходить в главном потоке
+            Dispatcher.Invoke(() =>
             {
-                TxtStatus.Text = count > 0 ? "🟢 Подключено. Данные идут" : "🟡 Подключено. Нет данных";
-                TxtStatus.Foreground = count > 0 ? System.Windows.Media.Brushes.Green : System.Windows.Media.Brushes.Orange;
+                // 1. Статус
+                TxtStatus.Text = $"🟢 Подключено к {_networkManager.GetEsp32Ip()}";
+                TxtPacketRate.Text = $"~{packet.TimestampMs / 1000:F1} Hz"; // Грубая оценка частоты
+                TxtLastPacket.Text = $"ID: {packet.PacketId}, RSSI: {packet.WifiRssi}dBm, CMD: {packet.CurrentCmd}";
+
+                // 2. Флаги (выводим как есть, без обращения к TxtFlags)
+                // TxtFlags.Text = $"Flags: 0x{(byte)packet.StatusFlags:X2} ({packet.CurrentCmd})"; // УДАЛЕНА ЭТА СТРОКА
+
+                // 3. IMU Данные
+                TxtRoll.Text = $"{packet.EulerRoll:F1}°";
+                TxtPitch.Text = $"{packet.EulerPitch:F1}°";
+                TxtYaw.Text = $"{packet.EulerYaw:F1}°";
+                // TxtTemp.Text = $"-- °C"; // Температура пока не передаётся в пакете
+
+                // 4. Обновление 3D модели по кватерниону
+                Update3DModel(packet.QuatW, packet.QuatX, packet.QuatY, packet.QuatZ);
+
+                // 5. Обновление графиков
+                UpdateChartData(
+                    packet.AccelX, packet.AccelY, packet.AccelZ,
+                    packet.GyroX, packet.GyroY, packet.GyroZ
+                );
+            });
+        }
+
+        private void Update3DModel(double w, double x, double y, double z)
+        {
+            // Преобразование кватерниона (w, x, y, z) в Matrix3D для Helix Toolkit
+            double xx = x * x;
+            double yy = y * y;
+            double zz = z * z;
+            double xy = x * y;
+            double xz = x * z;
+            double yz = y * z;
+            double wx = w * x;
+            double wy = w * y;
+            double wz = w * z;
+
+            Matrix3D rotationMatrix = new Matrix3D(
+                1 - 2 * (yy + zz), 2 * (xy - wz), 2 * (xz + wy), 0,
+                2 * (xy + wz), 1 - 2 * (xx + zz), 2 * (yz - wx), 0,
+                2 * (xz - wy), 2 * (yz + wx), 1 - 2 * (xx + yy), 0,
+                0, 0, 0, 1
+            );
+
+            if (ImuModel.Transform is MatrixTransform3D matrixTransform)
+            {
+                matrixTransform.Matrix = rotationMatrix;
             }
             else
             {
-                TxtStatus.Text = "⚪ Отключено";
-                TxtStatus.Foreground = System.Windows.Media.Brushes.Gray;
+                ImuModel.Transform = new MatrixTransform3D(rotationMatrix);
             }
         }
 
-        private static Quaternion MakeShortestPath(Quaternion from, Quaternion to)
+        private void UpdateUiRateDisplay()
         {
-            double dot = from.X * to.X + from.Y * to.Y + from.Z * to.Z + from.W * to.W;
-            if (dot < 0) return new Quaternion(-to.X, -to.Y, -to.Z, -to.W);
-            return to;
-        }
-
-        private static Quaternion ConvertSensorQuaternionToWpf(double qw, double qx, double qy, double qz)
-        {
-            // FLU (Front-Left-Up) -> WPF (Right-Up-Towards)
-            // WPF_X = -FLU_Y
-            // WPF_Y =  FLU_Z
-            // WPF_Z =  FLU_X
-            return new Quaternion(-qy, qz, qx, qw);
-        }
-
-        private void BtnComOpen_Click(object sender, RoutedEventArgs e)
-        {
-            if (CmbPort.SelectedItem == null) return;
-
-            string portName = CmbPort.SelectedItem.ToString()!;
-            if (serialPort != null && serialPort.IsOpen) return;
-
-            try
+            // Здесь можно обновлять частоту обновления UI, если нужно
+            // Проверяем, получен ли хотя бы один пакет
+            if (_lastPacket.HasValue) // Проверка на null для nullable struct
             {
-                var port = new SerialPort(portName, BaudRate)
+                var now = Environment.TickCount & Int32.MaxValue; // millis() аналог
+                long delay = now - (int)_lastPacket.Value.TimestampMs; // Используем .Value
+                if (delay > 100) // Если пакет старше 100 мс
                 {
-                    ReadTimeout = 200,
-                    WriteTimeout = 200
-                };
-                port.DataReceived += SerialPort_DataReceived;
-                port.Open();
-                serialPort = port;
-                rxBuffer = string.Empty;
-                TxtStatus.Text = "🟢 Подключено";
-                TxtStatus.Foreground = System.Windows.Media.Brushes.Green;
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Ошибка: {ex.Message}", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        private void BtnComClose_Click(object sender, RoutedEventArgs e)
-        {
-            var port = serialPort;
-            serialPort = null;
-
-            if (port == null) return;
-
-            port.DataReceived -= SerialPort_DataReceived;
-            Task.Run(() =>
-            {
-                try { if (port.IsOpen) port.Close(); } catch { }
-                try { port.Dispose(); } catch { }
-            });
-
-            TxtStatus.Text = "⚪ Отключено";
-            TxtStatus.Foreground = System.Windows.Media.Brushes.Gray;
-        }
-
-        private void SerialPort_DataReceived(object sender, SerialDataReceivedEventArgs e)
-        {
-            var port = sender as SerialPort;
-            if (port == null) return;
-
-            try
-            {
-                string incoming = port.ReadExisting();
-                rxBuffer += incoming;
-
-                while (true)
-                {
-                    int idx = rxBuffer.IndexOf('\n');
-                    if (idx < 0) break;
-
-                    string line = rxBuffer.Substring(0, idx).TrimEnd('\r');
-                    rxBuffer = rxBuffer.Substring(idx + 1);
-
-                    if (line.StartsWith("DATA|"))
-                    {
-                        ProcessDataLine(line);
-                        Interlocked.Increment(ref packetCount);
-                    }
-                    else
-                    {
-                        Dispatcher.BeginInvoke(() => AppendLog(line));
-                    }
+                    TxtPacketRate.Text = $"⚠️ Delay: {delay}ms";
                 }
             }
-            catch { /* ignore */ }
-        }
-
-        private void ProcessDataLine(string line)
-        {
-            try
+            else
             {
-                string[] parts = line.Split('|');
-                double qw = 0, qx = 0, qy = 0, qz = 0, temp = 0, roll = 0, pitch = 0, yaw = 0;
-
-                bool hasQw = false, hasQx = false, hasQy = false, hasQz = false;
-                bool hasTemp = false, hasRoll = false, hasPitch = false, hasYaw = false;
-
-                foreach (string part in parts)
-                {
-                    if (TryParseValue(part, "T:", out double t)) { temp = t; hasTemp = true; }
-                    if (TryParseValue(part, "R:", out double r)) { roll = r; hasRoll = true; }
-                    if (TryParseValue(part, "P:", out double p)) { pitch = p; hasPitch = true; }
-                    if (TryParseValue(part, "Y:", out double y1)) { yaw = y1; hasYaw = true; } // renamed y to y1
-                    if (TryParseValue(part, "QW:", out double w)) { qw = w; hasQw = true; }
-                    if (TryParseValue(part, "QX:", out double x)) { qx = x; hasQx = true; }
-                    if (TryParseValue(part, "QY:", out double y2)) { qy = y2; hasQy = true; } // renamed y to y2
-                    if (TryParseValue(part, "QZ:", out double z)) { qz = z; hasQz = true; }
-                }
-
-                if (hasQw && hasQx && hasQy && hasQz)
-                {
-                    double len = Math.Sqrt(qw * qw + qx * qx + qy * qy + qz * qz);
-                    if (len > 0.001)
-                    {
-                        Quaternion sensorQuat = ConvertSensorQuaternionToWpf(qw, qx, qy, qz);
-                        sensorQuat.Normalize();
-
-                        lock (dataLock)
-                        {
-                            targetQuaternion = sensorQuat;
-                            hasNewQuaternion = true;
-                        }
-                    }
-                }
-
-                if (hasTemp || hasRoll || hasPitch || hasYaw)
-                {
-                    lock (dataLock)
-                    {
-                        if (hasRoll) lastRoll = roll;
-                        if (hasPitch) lastPitch = pitch;
-                        if (hasYaw) lastYaw = yaw;
-                        if (hasTemp) lastTemp = temp;
-                        hasNewText = true;
-                    }
-                }
-
-                lastPacketTime = DateTime.Now.ToString("HH:mm:ss.fff");
+                TxtPacketRate.Text = "0 Hz"; // Или другой индикатор ожидания
             }
-            catch { /* ignore */ }
         }
 
-        private static bool TryParseValue(string part, string key, out double value)
+        private void OnLogMessage(string msg)
         {
-            value = 0;
-            if (!part.StartsWith(key, StringComparison.Ordinal)) return false;
-            string text = part.Substring(key.Length);
-            return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
-        }
-
-        private void AppendLog(string message)
-        {
-            if (TxtLog.Text.Length > 200000) TxtLog.Clear();
-            TxtLog.AppendText($"{DateTime.Now:HH:mm:ss} | {message}{Environment.NewLine}");
+            TxtLog.AppendText(msg + Environment.NewLine);
             TxtLog.ScrollToEnd();
         }
 
-        private void SendCommand(string command)
+        // Обработчики кнопок
+        private void BtnEStop_Click(object sender, RoutedEventArgs e) => _networkManager.SendEStop();
+        private void BtnHome_Click(object sender, RoutedEventArgs e) => _networkManager.SendHome();
+        private void BtnCalibrate_Click(object sender, RoutedEventArgs e) => _networkManager.SendCalibrate();
+        private void BtnResume_Click(object sender, RoutedEventArgs e) => _networkManager.SendResume();
+        private void BtnConnectToAP_Click(object sender, RoutedEventArgs e)
         {
-            var port = serialPort;
-            if (port == null || !port.IsOpen) return;
-
-            try { port.WriteLine(command); AppendLog($"Отправлено: {command}"); }
-            catch (Exception ex) { AppendLog($"Ошибка: {ex.Message}"); }
+            _networkManager.ConnectToEspManual("192.168.4.1");
         }
 
-        private void BtnMode0_Click(object sender, RoutedEventArgs e) => SendCommand("MODE 0");
-        private void BtnMode1_Click(object sender, RoutedEventArgs e) => SendCommand("MODE 1");
-        private void BtnMode2_Click(object sender, RoutedEventArgs e) => SendCommand("MODE 2");
-        private void BtnSendIpToEsp_Click(object sender, RoutedEventArgs e) => SendCommand($"IP {TxtPcIp.Text}");
-        private void BtnSave_Click(object sender, RoutedEventArgs e) => SendCommand("SAVE");
-        private void BtnReset_Click(object sender, RoutedEventArgs e) => SendCommand("RESET");
-        private void BtnRefreshPorts_Click(object sender, RoutedEventArgs e) => InitializeSerialPorts();
-
-        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
-        {
-            renderTimer.Stop();
-            rateTimer.Stop();
-
-            var port = serialPort;
-            serialPort = null;
-
-            if (port != null && port.IsOpen)
-            {
-                port.DataReceived -= SerialPort_DataReceived;
-                Task.Run(() =>
-                {
-                    try { if (port.IsOpen) port.Close(); } catch { }
-                    try { port.Dispose(); } catch { }
-                });
-            }
-
-            base.OnClosing(e);
-        }
+        // Заглушка для старых кнопок COM-порта, если они были
+        private void BtnComOpen_Click(object sender, RoutedEventArgs e) => OnLogMessage("COM Port: Not used in ABENICS UDP mode.");
+        private void BtnComClose_Click(object sender, RoutedEventArgs e) => OnLogMessage("COM Port: Not used in ABENICS UDP mode.");
+        private void BtnMode0_Click(object sender, RoutedEventArgs e) => OnLogMessage("Mode 0: Not used in ABENICS UDP mode.");
+        private void BtnMode1_Click(object sender, RoutedEventArgs e) => OnLogMessage("Mode 1: Not used in ABENICS UDP mode.");
+        private void BtnMode2_Click(object sender, RoutedEventArgs e) => OnLogMessage("Mode 2: Not used in ABENICS UDP mode.");
+        private void BtnRefreshPorts_Click(object sender, RoutedEventArgs e) => OnLogMessage("Refresh Ports: Not used in ABENICS UDP mode.");
+        private void BtnSendIpToEsp_Click(object sender, RoutedEventArgs e) => OnLogMessage("Send IP to ESP: Not implemented in UDP mode.");
+        private void BtnSave_Click(object sender, RoutedEventArgs e) => OnLogMessage("Save Config: Not implemented in UDP mode.");
+        private void BtnReset_Click(object sender, RoutedEventArgs e) => OnLogMessage("Reset: Not implemented in UDP mode.");
     }
 }
