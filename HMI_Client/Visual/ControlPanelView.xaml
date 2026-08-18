@@ -1,0 +1,37 @@
+<!-- File: HMI_Client/Visual/ControlPanelView.xaml -->
+<!-- Определяет пользовательский элемент управления с кнопками подключения и управления. -->
+<UserControl x:Class="HMI_Client.Visual.ControlPanelView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             mc:Ignorable="d" 
+             d:DesignHeight="100" d:DesignWidth="400">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="5">
+            <TextBlock Text="🌐 Подключение:" VerticalAlignment="Center" Margin="0,0,10,0"/>
+            
+            <TextBox x:Name="TxtEspIp" Text="10.170.117.17" Width="130" Margin="0,0,5,0" ToolTip="IP ESP32"/>
+            <Button x:Name="BtnConnectUdp" Content="🔌 Подключиться по Wi-Fi" Width="150" Margin="0,0,5,0"
+                    Background="#9C27B0" Foreground="White" BorderThickness="0" Padding="4,3" Cursor="Hand"/>
+            
+            <Button x:Name="BtnConnectCom" Content="🔌 Подключиться по COM" Width="150" Margin="5,0,0,0"
+                    Background="#607D8B" Foreground="White" BorderThickness="0" Padding="4,3" Cursor="Hand"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="5">
+            <TextBlock Text="🎮 Управление:" VerticalAlignment="Center" Margin="0,0,10,0"/>
+            
+            <Button x:Name="BtnEStop" Content="🛑 E-STOP" Width="100" Margin="0,0,5,0" Background="#F44336" Foreground="White" BorderThickness="0" Padding="4,3" Cursor="Hand"/>
+            <Button x:Name="BtnHome" Content="🏠 HOME" Width="100" Margin="0,0,5,0" Background="#2196F3" Foreground="White" BorderThickness="0" Padding="4,3" Cursor="Hand"/>
+            <Button x:Name="BtnCalibrate" Content="🎯 CALIBRATE" Width="120" Margin="0,0,5,0" Background="#FF9800" Foreground="White" BorderThickness="0" Padding="4,3" Cursor="Hand"/>
+            <Button x:Name="BtnResume" Content="▶️ RESUME" Width="100" Margin="0,0,0,0" Background="#4CAF50" Foreground="White" BorderThickness="0" Padding="4,3" Cursor="Hand"/>
+        </StackPanel>
+        
+    </Grid>
+</UserControl>

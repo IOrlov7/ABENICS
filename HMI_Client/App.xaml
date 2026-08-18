@@ -1,9 +1,9 @@
-﻿<Application x:Class="MPU6500Visualizer.App"
+﻿<!-- File: HMI_Client/App.xaml -->
+<Application x:Class="HMI_Client.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:local="clr-namespace:MPU6500Visualizer"
-             StartupUri="MainWindow.xaml">
+             StartupUri="Visual/MainWindow.xaml">
+    <!-- ВАЖНО: StartupUri="Visual/MainWindow.xaml" указывает правильный путь -->
     <Application.Resources>
-         
     </Application.Resources>
 </Application>

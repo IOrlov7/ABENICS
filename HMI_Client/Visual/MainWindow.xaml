@@ -1,0 +1,65 @@
+﻿<!-- File: HMI_Client/Visual/MainWindow.xaml -->
+<Window x:Class="HMI_Client.Visual.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:HMI_Client.Visual"
+        Title="ABENICS HMI Client" Height="900" Width="1050"
+        Background="#F5F5F5" WindowStartupLocation="CenterScreen">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="220"/>
+            <RowDefinition Height="120"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <local:ControlPanelView x:Name="ControlPanel" Grid.Row="0" Margin="8"/>
+        <local:Visualizer3DView x:Name="Visualizer3D" Grid.Row="1"/>
+
+        <Border Grid.Row="2" Background="White" BorderBrush="#E0E0E0" BorderThickness="0,1,0,0" Padding="12,8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Roll (X)" FontSize="11" Foreground="#757575"/>
+                    <TextBlock x:Name="TxtRoll" Text="0.0°" FontSize="18" FontWeight="SemiBold" Foreground="#1976D2"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1">
+                    <TextBlock Text="Pitch (Y)" FontSize="11" Foreground="#757575"/>
+                    <TextBlock x:Name="TxtPitch" Text="0.0°" FontSize="18" FontWeight="SemiBold" Foreground="#388E3C"/>
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Yaw (Z)" FontSize="11" Foreground="#757575"/>
+                    <TextBlock x:Name="TxtYaw" Text="0.0°" FontSize="18" FontWeight="SemiBold" Foreground="#D32F2F"/>
+                </StackPanel>
+                <StackPanel Grid.Column="3">
+                    <TextBlock Text="Wi-Fi RSSI" FontSize="11" Foreground="#757575"/>
+                    <TextBlock x:Name="TxtRssi" Text="-- dBm" FontSize="18" FontWeight="SemiBold" Foreground="#F57C00"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <local:TelemetryGraphsView x:Name="GraphsView" Grid.Row="3" Margin="8,8,8,0"/>
+        <local:LogView x:Name="LogView" Grid.Row="4" Margin="8,8,8,8"/>
+        
+        <!-- Статус-бар (ИСПРАВЛЕНО: добавлен x:Name="TxtStatus") -->
+        <Border Grid.Row="5" Background="#424242" Padding="12,4">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="TxtStatus" Grid.Column="0" Text="⚪ Отключено" Foreground="#BDBDBD" FontSize="11" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="1" x:Name="TxtPacketRate" Text="0 Hz" Foreground="#81C784" FontSize="11" FontWeight="SemiBold" Margin="0,0,16,0" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="TxtLastPacket" Text="Последний пакет: --" Foreground="#BDBDBD" FontSize="11" VerticalAlignment="Center"/>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

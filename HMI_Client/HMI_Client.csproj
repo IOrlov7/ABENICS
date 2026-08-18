@@ -13,6 +13,7 @@
     <!-- Современные версии, полностью совместимые с .NET 8/9/10 -->
     <PackageReference Include="HelixToolkit.Wpf" Version="2.25.0" />
     <PackageReference Include="LiveChartsCore.SkiaSharpView.WPF" Version="2.0.0" />
+    <PackageReference Include="System.IO.Ports" Version="10.0.11" />
   </ItemGroup>
 
 </Project>
