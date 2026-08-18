@@ -243,6 +243,16 @@ namespace IMU_Visualizer
         {
             _networkManager.ConnectToEspManual("192.168.4.1");
         }
+        private void BtnConnectToEsp_Click(object sender, RoutedEventArgs e)
+        {
+            string espIp = TxtEspIp.Text.Trim();
+            if (string.IsNullOrEmpty(espIp))
+            {
+                MessageBox.Show("Введите IP адрес ESP32", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            _networkManager.ConnectToEspManual(espIp);
+        }
 
         // Заглушка для старых кнопок COM-порта, если они были
         private void BtnComOpen_Click(object sender, RoutedEventArgs e) => OnLogMessage("COM Port: Not used in ABENICS UDP mode.");

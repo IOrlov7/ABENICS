@@ -102,65 +102,54 @@ void NetworkManager::sendTelemetry()
     TelemetryPacket pkt;
     memset(&pkt, 0, sizeof(pkt));
 
-    // --- IMU (из SensorManager) ---
-    auto &sensors = SensorManager::instance();
-    pkt.imu.quat_w = sensors.getQuatW();
-    pkt.imu.quat_x = sensors.getQuatX();
-    pkt.imu.quat_y = sensors.getQuatY();
-    pkt.imu.quat_z = sensors.getQuatZ();
-    pkt.imu.roll = sensors.getRoll();
-    pkt.imu.pitch = sensors.getPitch();
-    pkt.imu.yaw = sensors.getYaw();
-    pkt.imu.accel_x = sensors.getAccelX();
-    pkt.imu.accel_y = sensors.getAccelY();
-    pkt.imu.accel_z = sensors.getAccelZ();
-    pkt.imu.gyro_x = sensors.getGyroX();
-    pkt.imu.gyro_y = sensors.getGyroY();
-    pkt.imu.gyro_z = sensors.getGyroZ();
-    pkt.imu.mag_x = sensors.getMagX();
-    pkt.imu.mag_y = sensors.getMagY();
-    pkt.imu.mag_z = sensors.getMagZ();
-    pkt.imu.temperature = sensors.getTemperature();
+    // ★ IMU — читаем напрямую из l_mpuData (все поля float)
+    pkt.imu.quat_w = l_mpuData.quatW;
+    pkt.imu.quat_x = l_mpuData.quatX;
+    pkt.imu.quat_y = l_mpuData.quatY;
+    pkt.imu.quat_z = l_mpuData.quatZ;
+    pkt.imu.roll = l_mpuData.roll;
+    pkt.imu.pitch = l_mpuData.pitch;
+    pkt.imu.yaw = l_mpuData.yaw;
+    pkt.imu.accel_x = l_mpuData.accelX; // float → float (без преобразования)
+    pkt.imu.accel_y = l_mpuData.accelY;
+    pkt.imu.accel_z = l_mpuData.accelZ;
+    pkt.imu.gyro_x = l_mpuData.gyroX;
+    pkt.imu.gyro_y = l_mpuData.gyroY;
+    pkt.imu.gyro_z = l_mpuData.gyroZ;
+    pkt.imu.mag_x = l_mpuData.magX;
+    pkt.imu.mag_y = l_mpuData.magY;
+    pkt.imu.mag_z = l_mpuData.magZ;
 
-    // --- Шаговые моторы (заглушки, пока нет API) ---
+    // Моторы (заглушки)
     pkt.stepper_x.angle = 0.0f;
-    pkt.stepper_x.speed = 0.0f;
-    pkt.stepper_x.direction = 0;
-    pkt.stepper_x.state = 0;
-
     pkt.stepper_y.angle = 0.0f;
-    pkt.stepper_y.speed = 0.0f;
-    pkt.stepper_y.direction = 0;
-    pkt.stepper_y.state = 0;
-
-    // --- Сервоприводы (заглушки) ---
     for (int i = 0; i < 8; i++)
-    {
         pkt.servo_angles[i] = 0;
-    }
 
-    // --- Системное состояние ---
+    // Система
     pkt.system.current_cmd = (uint8_t)g_currentCommand;
     pkt.system.status_flags = g_statusFlags;
     pkt.system.wifi_rssi = (int8_t)WiFi.RSSI();
-    pkt.system.uptime_ms = millis();
 
-    // --- Заголовок + CRC + отправка ---
+    // Заголовок + CRC
     finalizePacket(pkt);
 
+    // ★ Отладка (раз в 2 сек)
+    static uint32_t lastDbg = 0;
+    if (millis() - lastDbg > 2000)
+    {
+        Serial.printf("[NET] TX pkt #%u → %s | accel=(%.2f, %.2f, %.2f) | sizeof=%d\n",
+                      pkt.packet_id,
+                      (_clientIPSet ? _clientIP.toString().c_str() : "broadcast"),
+                      pkt.imu.accel_x, pkt.imu.accel_y, pkt.imu.accel_z,
+                      (int)sizeof(TelemetryPacket));
+        lastDbg = millis();
+    }
+
     IPAddress destIP = _clientIPSet ? _clientIP : IPAddress(255, 255, 255, 255);
-    _udpTelemetry.beginPacket(destIP, _telemetryPort); // ★ используем _telemetryPort
+    _udpTelemetry.beginPacket(destIP, _telemetryPort);
     _udpTelemetry.write((const uint8_t *)&pkt, sizeof(TelemetryPacket));
     _udpTelemetry.endPacket();
-    static uint32_t lastPrint = 0;
-    if (millis() - lastPrint > 2000)
-    {
-        Serial.printf("[NET] TX pkt #%u → %s | accel=(%.2f, %.2f, %.2f)\n",
-                      _packetId - 1,
-                      destIP.toString().c_str(),
-                      pkt.imu.accel_x, pkt.imu.accel_y, pkt.imu.accel_z);
-        lastPrint = millis();
-    }
 }
 
 // ============================================================

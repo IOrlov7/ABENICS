@@ -31,28 +31,35 @@ namespace HMI_Client
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public struct TelemetryPacket
     {
+        // Header (2 bytes)
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = 2)]
         public byte[] Header;
 
+        // Meta (8 bytes) — ★ ИЗМЕНЕНО: packet_id теперь uint (4 байта)
         public uint PacketId;
         public uint TimestampMs;
 
+        // IMU Data (64 bytes) — ★ ВСЕ float
         public float QuatW, QuatX, QuatY, QuatZ;
         public float EulerRoll, EulerPitch, EulerYaw;
         public float AccelX, AccelY, AccelZ;
         public float GyroX, GyroY, GyroZ;
         public float MagX, MagY, MagZ;
 
+        // Motors (8 bytes) — ★ УПРОЩЕНО: только angle
         public float StepperX_Angle;
         public float StepperY_Angle;
 
+        // Servos (16 bytes)
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = 8)]
         public ushort[] ServoAngles;
 
+        // System State (3 bytes)
         public StatusFlags StatusFlags;
         public sbyte WifiRssi;
         public CommandId CurrentCmd;
-        public byte Reserved;
+
+        // CRC16 (2 bytes)
         public ushort Crc16;
 
         public const int ExpectedSize = 103;

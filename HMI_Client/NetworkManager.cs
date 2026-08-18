@@ -41,8 +41,8 @@ namespace HMI_Client
         public void ConnectToEspManual(string ip)
         {
             _esp32EndPoint = new IPEndPoint(IPAddress.Parse(ip), SendPort);
-            Log($"Ручное подключение к ESP32: {ip}");
-            SendCommand(CommandId.CMD_IDLE); // Отправляем CMD_IDLE, чтобы ESP32 запомнил наш IP
+            Log($"🔌 Ручное подключение к ESP32: {ip}:{SendPort}");
+            SendCommand(CommandId.CMD_IDLE); // Отправляем пустую команду, чтобы ESP32 запомнил наш IP
         }
 
         private async Task ReceiveLoopAsync()
