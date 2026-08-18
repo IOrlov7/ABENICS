@@ -100,6 +100,21 @@ struct ServoConfig
     uint16_t maxUs = SERVO_MAX_US;
     uint8_t count = 8; // 8x TD-7120MG
 };
+// ============================================================
+// КОНФИГ IMU (адреса I2C для разных датчиков)
+// ============================================================
+struct ImuConfig {
+    // MPU6500
+    uint8_t mpu6500Address = 0x68;
+    
+    // BMX055 (3 адреса: accel/gyro/mag)
+    uint8_t bmx055AccelAddress = 0x19;
+    uint8_t bmx055GyroAddress  = 0x68;
+    uint8_t bmx055MagAddress   = 0x10;
+    
+    // Фильтр Маджвика
+    float filterSampleFreqHz = 100.0f;
+};
 
 // ============================================================
 // ★ НОВЫЙ: КОНФИГ СЕТИ (UDP телеметрия и команды)
@@ -138,18 +153,16 @@ struct ControlConfig
 // ============================================================
 // ОБЩИЙ КОНФИГ ПРОЕКТА
 // ============================================================
-struct ProjectConfig
-{
+struct ProjectConfig {
     OrientationSensor orientationSensor = OrientationSensor::BMX055;
-
-    StepperConfig   stepper;
-    ServoConfig     servo;
-    I2CConfig       i2c;
+    
+    ImuConfig         imu;       // ★ ДОБАВЛЕНО
+    StepperConfig     stepper;
+    ServoConfig       servo;
+    I2CConfig         i2c;
     control::JoystickConfig joystick;
-
-    // ★ НОВЫЕ ПОЛЯ
-    NetworkConfig   network;
-    ControlConfig   control;
+    NetworkConfig     network;
+    ControlConfig     control;
 };
 
 // Функция-фабрика

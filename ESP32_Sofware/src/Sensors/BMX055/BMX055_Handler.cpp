@@ -1,196 +1,77 @@
 #include "Sensors/BMX055/BMX055_Handler.h"
-#include "HAL/I2CBus.h"
+// #include "BMX055.h"  // ← Раскомментируйте когда добавите библиотеку
 
-static constexpr uint8_t ACC_REG_DATA = 0x02;
-static constexpr uint8_t GYR_REG_DATA = 0x02;
-static constexpr uint8_t MAG_REG_DATA = 0x03;
+BMX055_Handler::BMX055_Handler(TwoWire& wire, const BMX055_Addresses& addrs)
+    : _i2cBus(&wire), _addrs(addrs), _imu(nullptr) {
+}
 
-// Для выбранных диапазонов.
-// Если будешь менять диапазон в initAccel/initGyro,
-// обязательно меняй и эти коэффициенты.
-static constexpr float ACCEL_LSB_PER_G = 1024.0f;     // ±2g
-static constexpr float GYRO_LSB_PER_DPS = 65.536f;    // ±500 dps
+BMX055_Handler::~BMX055_Handler() {
+    delete _imu;
+}
 
 bool BMX055_Handler::begin() {
-    auto& bus = I2CBus::instance();
-
-    // Акселерометр BMX055 может быть по адресу 0x18 или 0x19.
-    _addrAccel = 0x18;
-    _accelPresent = bus.isDevicePresent(_addrAccel);
-
-    if (!_accelPresent) {
-        _addrAccel = 0x19;
-        _accelPresent = bus.isDevicePresent(_addrAccel);
-    }
-
-    // Гироскоп BMX055 может быть по адресу 0x68 или 0x69.
-    _addrGyro = 0x68;
-    _gyroPresent = bus.isDevicePresent(_addrGyro);
-
-    if (!_gyroPresent) {
-        _addrGyro = 0x69;
-        _gyroPresent = bus.isDevicePresent(_addrGyro);
-    }
-
-    // Магнитометр BMX055 может быть по адресу 0x10 или 0x12.
-    _addrMag = 0x10;
-    _magPresent = bus.isDevicePresent(_addrMag);
-
-    if (!_magPresent) {
-        _addrMag = 0x12;
-        _magPresent = bus.isDevicePresent(_addrMag);
-    }
-
-    bool ok = false;
-
-    if (_accelPresent) {
-        initAccel();
-        ok = true;
-    }
-
-    if (_gyroPresent) {
-        initGyro();
-        ok = true;
-    }
-
-    if (_magPresent) {
-        initMag();
-    }
-
-    return ok;
-}
-
-bool BMX055_Handler::read(BMX055Data& data) {
-    data = BMX055Data();
-    data.timestampMs = millis();
-
-    if (_accelPresent) {
-        data.accelOk = readAccel(data.accelG);
-    }
-
-    if (_gyroPresent) {
-        data.gyroOk = readGyro(data.gyroDps);
-    }
-
-    if (_magPresent) {
-        data.magOk = readMagRaw(data.magRaw);
-    }
-
-    return data.accelOk || data.gyroOk;
-}
-
-bool BMX055_Handler::initAccel() {
-    auto& bus = I2CBus::instance();
-
-    bool ok = true;
-
-    // Диапазон ±2g.
-    // При смене диапазона изменить ACCEL_LSB_PER_G.
-    ok &= bus.writeRegister(_addrAccel, 0x0F, 0x03);
-
-    // Нормальный режим и полоса пропускания.
-    // При необходимости уточнить значение под конкретную ревизию/задачу.
-    ok &= bus.writeRegister(_addrAccel, 0x10, 0x0C);
-
-    delay(10);
-
-    return ok;
-}
-
-bool BMX055_Handler::initGyro() {
-    auto& bus = I2CBus::instance();
-
-    bool ok = true;
-
-    // Диапазон ±500 dps.
-    // При смене диапазона изменить GYRO_LSB_PER_DPS.
-    ok &= bus.writeRegister(_addrGyro, 0x0F, 0x02);
-
-    // Нормальный режим гироскопа.
-    ok &= bus.writeRegister(_addrGyro, 0x11, 0x00);
-
-    delay(10);
-
-    return ok;
-}
-
-bool BMX055_Handler::initMag() {
-    auto& bus = I2CBus::instance();
-
-    bool ok = true;
-
-    // Базовое включение магнитометра.
-    // Для нормального использования нужна компенсация по trim-коэффициентам.
-    // Пока можно воспринимать это как experimental raw read.
-    ok &= bus.writeRegister(_addrMag, 0x4B, 0x01); // Power control
-    ok &= bus.writeRegister(_addrMag, 0x4C, 0x00); // Operation mode
-    ok &= bus.writeRegister(_addrMag, 0x4E, 0x04); // XY repetitions
-    ok &= bus.writeRegister(_addrMag, 0x51, 0x0F); // Z repetitions
-
-    delay(10);
-
-    return ok;
-}
-
-bool BMX055_Handler::readAccel(float accelG[3]) {
-    uint8_t buf[6];
-
-    if (!I2CBus::instance().readRegisters(_addrAccel, ACC_REG_DATA, buf, sizeof(buf))) {
+    // Временная заглушка — пока библиотека BMX055 не подключена
+    Serial.println("[BMX055] ⚠ STUB MODE: библиотека не подключена");
+    Serial.printf("[BMX055] Expected addresses: Accel=0x%02X, Gyro=0x%02X, Mag=0x%02X\n",
+                  _addrs.accel, _addrs.gyro, _addrs.mag);
+    
+    /*
+    _imu = new bfs::Bmx055(_i2cBus);
+    if (!_imu->Begin(_addrs.accel, _addrs.gyro, _addrs.mag)) {
+        Serial.println("[BMX055] Init FAILED");
         return false;
     }
+    Serial.println("[BMX055] Init OK");
+    return true;
+    */
+    
+    return true;  // Возвращаем true, чтобы система не падала
+}
 
-    for (int axis = 0; axis < 3; ++axis) {
-        uint8_t lsb = buf[axis * 2 + 0];
-        uint8_t msb = buf[axis * 2 + 1];
-
-        int16_t raw = static_cast<int16_t>((msb << 4) | (lsb >> 4));
-
-        // 12-bit signed conversion.
-        if (raw > 2047) {
-            raw -= 4096;
-        }
-
-        accelG[axis] = static_cast<float>(raw) / ACCEL_LSB_PER_G;
-    }
-
+bool BMX055_Handler::calibrate(uint16_t samples) {
+    Serial.printf("[BMX055] Calibrating (%d samples)...\n", samples);
+    delay(500);
+    Serial.println("[BMX055] Calibration done (stub)");
     return true;
 }
 
-bool BMX055_Handler::readGyro(float gyroDps[3]) {
-    uint8_t buf[6];
-
-    if (!I2CBus::instance().readRegisters(_addrGyro, GYR_REG_DATA, buf, sizeof(buf))) {
-        return false;
+// ★ Унифицированный метод: читает данные и пишет в l_mpuData
+bool BMX055_Handler::readData() {
+    /*
+    if (_imu && _imu->Read()) {
+        l_mpuData.accelX = _imu->accel_x_mps2();
+        l_mpuData.accelY = _imu->accel_y_mps2();
+        l_mpuData.accelZ = _imu->accel_z_mps2();
+        l_mpuData.gyroX  = _imu->gyro_x_radps();
+        l_mpuData.gyroY  = _imu->gyro_y_radps();
+        l_mpuData.gyroZ  = _imu->gyro_z_radps();
+        l_mpuData.magX   = _imu->mag_x_ut();
+        l_mpuData.magY   = _imu->mag_y_ut();
+        l_mpuData.magZ   = _imu->mag_z_ut();
+        l_mpuData.temperature = _imu->temp_c();
+        l_mpuData.isNewData = true;
+        l_mpuData.lastReadTime = millis();
+        return true;
     }
-
-    for (int axis = 0; axis < 3; ++axis) {
-        uint8_t lsb = buf[axis * 2 + 0];
-        uint8_t msb = buf[axis * 2 + 1];
-
-        int16_t raw = static_cast<int16_t>((msb << 8) | lsb);
-
-        gyroDps[axis] = static_cast<float>(raw) / GYRO_LSB_PER_DPS;
-    }
-
-    return true;
-}
-
-bool BMX055_Handler::readMagRaw(int16_t magRaw[3]) {
-    uint8_t buf[6];
-
-    if (!I2CBus::instance().readRegisters(_addrMag, MAG_REG_DATA, buf, sizeof(buf))) {
-        return false;
-    }
-
-    int16_t x = static_cast<int16_t>((buf[1] << 8) | buf[0]);
-    int16_t y = static_cast<int16_t>((buf[3] << 8) | buf[2]);
-    int16_t z = static_cast<int16_t>((buf[5] << 8) | buf[4]);
-
-    // BMM150/BMX055 magnetometer raw alignment:
-    // X/Y approximately 13-bit, Z approximately 15-bit.
-    magRaw[0] = static_cast<int16_t>(x >> 3);
-    magRaw[1] = static_cast<int16_t>(y >> 3);
-    magRaw[2] = static_cast<int16_t>(z >> 1);
-
+    */
+    
+    // Заглушка: генерируем синусоиду для отладки
+    static uint32_t counter = 0;
+    float t = counter * 0.01f;
+    
+    l_mpuData.accelX = sinf(t) * 0.5f;
+    l_mpuData.accelY = cosf(t) * 0.5f;
+    l_mpuData.accelZ = 9.81f;
+    l_mpuData.gyroX = sinf(t * 0.5f) * 0.1f;
+    l_mpuData.gyroY = cosf(t * 0.5f) * 0.1f;
+    l_mpuData.gyroZ = 0;
+    l_mpuData.magX = 0;
+    l_mpuData.magY = 0;
+    l_mpuData.magZ = 0;
+    l_mpuData.temperature = 25.0f;
+    l_mpuData.isNewData = true;
+    l_mpuData.lastReadTime = millis();
+    
+    counter++;
     return true;
 }

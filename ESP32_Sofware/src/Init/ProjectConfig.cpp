@@ -6,6 +6,12 @@ ProjectConfig GetProjectConfig()
 
     // --- Датчик ориентации ---
     cfg.orientationSensor = OrientationSensor::BMX055; // или MPU6500
+    // --- IMU ---
+    cfg.imu.mpu6500Address = 0x68;
+    cfg.imu.bmx055AccelAddress = 0x19;
+    cfg.imu.bmx055GyroAddress = 0x68;
+    cfg.imu.bmx055MagAddress = 0x10;
+    cfg.imu.filterSampleFreqHz = 100.0f;
 
     // --- I2C ---
     cfg.i2c.sda = PIN_I2C_SDA;
@@ -14,15 +20,15 @@ ProjectConfig GetProjectConfig()
 
     // --- Шаговые двигатели (2 оси, архитектура) ---
     cfg.stepper.count = 2;
-    
+
     // Ось X
     cfg.stepper.axes[0].stepPin = PIN_STEP_X;
-    cfg.stepper.axes[0].dirPin  = PIN_DIR_X;
+    cfg.stepper.axes[0].dirPin = PIN_DIR_X;
     cfg.stepper.axes[0].invertDirection = false;
 
     // Ось Y
     cfg.stepper.axes[1].stepPin = PIN_STEP_Y;
-    cfg.stepper.axes[1].dirPin  = PIN_DIR_Y;
+    cfg.stepper.axes[1].dirPin = PIN_DIR_Y;
     cfg.stepper.axes[1].invertDirection = false;
 
     cfg.stepper.enablePin = PIN_EN_ALL;
@@ -41,27 +47,27 @@ ProjectConfig GetProjectConfig()
     cfg.joystick = getJoystickConfig();
 
     // ★ --- Сеть (NetworkConfig) ---
-    cfg.network.telemetryPort       = UDP_TELEMETRY_PORT; // 8888
-    cfg.network.commandPort         = UDP_COMMAND_PORT;   // 8889
-    cfg.network.telemetryPeriodMs   = 20;                  // 50 Гц
-    cfg.network.wifiConnectTimeoutMs = 5000;                // 5 сек
-    cfg.network.useCaptivePortal    = true;
+    cfg.network.telemetryPort = UDP_TELEMETRY_PORT; // 8888
+    cfg.network.commandPort = UDP_COMMAND_PORT;     // 8889
+    cfg.network.telemetryPeriodMs = 20;             // 50 Гц
+    cfg.network.wifiConnectTimeoutMs = 5000;        // 5 сек
+    cfg.network.useCaptivePortal = true;
 
     // ★ --- Управление (ControlConfig) ---
-    cfg.control.loopPeriodMs       = 20;   // 50 Гц controlTask
-    cfg.control.sensorPeriodMs     = 10;   // 100 Гц sensorTask
+    cfg.control.loopPeriodMs = 20;   // 50 Гц controlTask
+    cfg.control.sensorPeriodMs = 10; // 100 Гц sensorTask
 
-    cfg.control.controlTaskCore    = 1;
+    cfg.control.controlTaskCore = 1;
     cfg.control.controlTaskPriority = 3;
 
-    cfg.control.sensorTaskCore     = 1;
+    cfg.control.sensorTaskCore = 1;
     cfg.control.sensorTaskPriority = 2;
 
-    cfg.control.networkTaskCore    = 0;
+    cfg.control.networkTaskCore = 0;
     cfg.control.networkTaskPriority = 2;
 
-    cfg.control.wifiTaskCore       = 0;
-    cfg.control.wifiTaskPriority   = 1;
+    cfg.control.wifiTaskCore = 0;
+    cfg.control.wifiTaskPriority = 1;
 
     return cfg;
 }

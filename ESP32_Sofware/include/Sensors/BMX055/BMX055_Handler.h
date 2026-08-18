@@ -1,41 +1,28 @@
 #pragma once
 
-#include <Arduino.h>
+#include <Wire.h>
+#include "DataBlock.h"
 
-struct BMX055Data {
-    float accelG[3] = {0.0f, 0.0f, 0.0f};
-    float gyroDps[3] = {0.0f, 0.0f, 0.0f};
-    int16_t magRaw[3] = {0, 0, 0};
+namespace bfs { class Bmx055; }
 
-    bool accelOk = false;
-    bool gyroOk = false;
-    bool magOk = false;
-
-    uint32_t timestampMs = 0;
+// ★ Вынесена ЗА пределы класса — фикс ошибки с дефолтным аргументом
+struct BMX055_Addresses {
+    uint8_t accel = 0x19;
+    uint8_t gyro  = 0x68;
+    uint8_t mag   = 0x10;
 };
 
 class BMX055_Handler {
 public:
-    bool begin();
+    BMX055_Handler(TwoWire& wire, const BMX055_Addresses& addrs = BMX055_Addresses());
+    ~BMX055_Handler();
 
-    // Только чтение данных.
-    // Никаких управляющих команд здесь быть не должно.
-    bool read(BMX055Data& data);
+    bool begin();
+    bool calibrate(uint16_t samples);
+    bool readData();
 
 private:
-    bool initAccel();
-    bool initGyro();
-    bool initMag();
-
-    bool readAccel(float accelG[3]);
-    bool readGyro(float gyroDps[3]);
-    bool readMagRaw(int16_t magRaw[3]);
-
-    uint8_t _addrAccel = 0x18;
-    uint8_t _addrGyro = 0x68;
-    uint8_t _addrMag = 0x10;
-
-    bool _accelPresent = false;
-    bool _gyroPresent = false;
-    bool _magPresent = false;
+    TwoWire* _i2cBus;
+    BMX055_Addresses _addrs;
+    bfs::Bmx055* _imu;
 };
