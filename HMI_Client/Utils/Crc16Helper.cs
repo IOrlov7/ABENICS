@@ -1,48 +1,40 @@
 // File: HMI_Client/Utils/Crc16Helper.cs
 //
 // НАЗНАЧЕНИЕ:
-// Этот статический класс предоставляет функцию для вычисления CRC16.
-// Используется для проверки целостности полученных UDP-пакетов.
+// Вычисление CRC16 по алгоритму ESP-IDF (esp_crc16_le).
+// Это CRC-16/CCITT-FALSE: полином 0x1021, init 0xFFFF, без отражения.
 //
-// ОТВЕЧАЕТ ЗА:
-// - Вычисление CRC16 по алгоритму, совместимому с ESP-IDF (poly 0x8408, init 0xFFFF).
+using System;
 
 namespace HMI_Client.Utils
 {
     public static class Crc16Helper
     {
-
-        /// Вычисляет CRC16 по алгоритму, используемому в ESP-IDF.
-        /// Полином: 0x8408 (reflected CCITT / CRC-16/ISO-HDLC).
-        /// Начальное значение: 0xFFFF.
-
-        /// <param name="data">Массив байт, для которого вычисляется CRC.</param>
-        /// <param name="length">Количество байт в массиве для вычисления (обычно длина пакета минус 2).</param>
-        /// <returns>Вычисленное CRC16 значение.</returns>
+        /// <summary>
+        /// Вычисляет CRC16 по алгоритму CRC-16/CCITT-FALSE.
+        /// Полином: 0x1021, начальное значение: 0xFFFF.
+        /// </summary>
         public static ushort Calculate(byte[] data, int length)
         {
-            // Начальное значение CRC
             ushort crc = 0xFFFF;
-            for (int pos = 0; pos < length; pos++)
+            
+            for (int i = 0; i < length; i++)
             {
-                // XOR текущего байта с младшим байтом CRC
-                crc ^= data[pos];
-                // Выполняем 8 итераций для каждого бита в байте
-                for (int i = 0; i < 8; i++)
+                crc ^= (ushort)(data[i] << 8);
+                
+                for (int j = 0; j < 8; j++)
                 {
-                    // Если младший бит CRC равен 1, сдвигаем CRC и применяем полином
-                    if ((crc & 1) != 0)
+                    if ((crc & 0x8000) != 0)
                     {
-                        crc >>= 1; // Сдвиг вправо
-                        crc ^= 0x8408; // XOR с отраженным полиномом
+                        crc = (ushort)((crc << 1) ^ 0x1021);
                     }
                     else
                     {
-                        // Иначе просто сдвигаем вправо
-                        crc >>= 1;
+                        crc <<= 1;
                     }
                 }
             }
+            
             return crc;
         }
     }
