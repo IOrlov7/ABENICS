@@ -1,4 +1,5 @@
 // File: HMI_Client/Visual/TelemetryGraphsView.xaml.cs
+// Логика для обновления графиков. Использует ObservableCollection<double> и ISeries из LiveCharts.
 
 using System;
 using System.Collections.ObjectModel;

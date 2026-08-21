@@ -1,4 +1,5 @@
-<!-- File: HMI_Client/Visual/TelemetryGraphsView.xaml -->
+<!-- File: HMI_Client/Visual/TelemetryGraphsView.xaml 
+ UserControl для отображения графиков акселерометра и гироскопа.-->
 <UserControl x:Class="HMI_Client.Visual.TelemetryGraphsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"

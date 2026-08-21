@@ -1,3 +1,5 @@
+// sensormanager.cpp
+
 #include "Sensors/SensorManager.h"
 #include "Init/SystemInit.h" // Для System_GetConfig
 #include "Communication/NetworkManager.h" // Для g_statusFlags
@@ -5,6 +7,7 @@
 #include "DataBlock.h" // Для l_mpuData и g_mpuData
 #include "Sensors/MPU6500/MPU6500_Handler.h" // Теперь включаем здесь
 #include <math.h> // Для вычислений углов (если нужно)
+#include "Communication/SerialPort.h" 
 
 // Используем внешние глобальные переменные из DataBlock.h
 // Глобальные переменные состояния (определены в SystemInit.cpp)
@@ -28,12 +31,14 @@ bool SensorManager::begin(uint8_t address, TwoWire& wireRef) {
     // УПРОЩЁННО: всегда создаём MPU6500_Handler
     _imuHandler = new MPU6500_Handler(wireRef, address); // Передаём ссылку
     if (_imuHandler->begin()) {
-        Serial.printf("[SensorMgr] MPU6500 handler created and initialized at 0x%02X.\n", address);
+        // ★ ЗАМЕНЕНО: теперь используем макрос SERIAL_DEBUG
+        SERIAL_DEBUG("[SensorMgr] MPU6500 handler created and initialized at 0x%02X.\n", address);
         _initialized = true; // Устанавливаем флаг инициализации
         // Устанавливаем флаг исправности IMU
         g_statusFlags |= static_cast<uint8_t>(StatusFlags::FLAG_IMU_OK);
     } else {
-        Serial.printf("[SensorMgr] MPU6500 init FAILED at 0x%02X\n", address);
+        // ★ ЗАМЕНЕНО: теперь используем макрос SERIAL_DEBUG
+        SERIAL_DEBUG("[SensorMgr] MPU6500 init FAILED at 0x%02X\n", address);
         delete _imuHandler;
         _imuHandler = nullptr;
         _initialized = false; // Устанавливаем флаг неудачи
@@ -51,7 +56,8 @@ void SensorManager::update() {
         // ★ Отладка раз в секунду
         static uint32_t lastPrint = 0;
         if (millis() - lastPrint > 1000) {
-            Serial.printf("[SensorMgr] readData=%d | accel=(%.2f, %.2f, %.2f) | gyro=(%.2f, %.2f, %.2f)\n",
+            // ★ ЗАМЕНЕНО: теперь используем макрос SERIAL_DEBUG
+            SERIAL_DEBUG("[SensorMgr] readData=%d | accel=(%.2f, %.2f, %.2f) | gyro=(%.2f, %.2f, %.2f)\n",
                 ok ? 1 : 0,
                 l_mpuData.accelX, l_mpuData.accelY, l_mpuData.accelZ,
                 l_mpuData.gyroX, l_mpuData.gyroY, l_mpuData.gyroZ);
@@ -101,9 +107,11 @@ bool SensorManager::isInitialized() const {
 void SensorManager::startTask(uint8_t coreId, uint8_t priority) {
     if (_initialized) {
         xTaskCreatePinnedToCore(taskEntry, "SensorTask", 8192, nullptr, priority, nullptr, coreId);
-        Serial.printf("[SensorMgr] Task started on Core %d with Priority %d\n", coreId, priority);
+        // ★ ЗАМЕНЕНО: теперь используем макрос SERIAL_DEBUG
+        SERIAL_DEBUG("[SensorMgr] Task started on Core %d with Priority %d\n", coreId, priority);
     } else {
-        Serial.println("[SensorMgr] Cannot start task: not initialized.");
+        // ★ ЗАМЕНЕНО: теперь используем макрос SERIAL_DEBUG
+        SERIAL_DEBUG("[SensorMgr] Cannot start task: not initialized.\n");
     }
 }
 

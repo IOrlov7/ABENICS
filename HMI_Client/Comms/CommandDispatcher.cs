@@ -10,6 +10,7 @@
 // - Маршрутизацию команд к активному интерфейсу.
 
 using HMI_Client.Comms.Data;
+using HMI_Client.Comms.Data;
 
 namespace HMI_Client.Comms
 {

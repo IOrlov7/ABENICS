@@ -1,4 +1,7 @@
+// networkmanager.cpp
+
 #include "Communication/NetworkManager.h"
+#include "Communication/SerialPort.h"
 #include "Sensors/SensorManager.h"
 #include "Init/SystemInit.h"
 #include <esp_crc.h>
@@ -33,7 +36,8 @@ void NetworkManager::begin(uint16_t telemetryPort, uint16_t commandPort)
     _udpTelemetry.begin(_telemetryPort);
     _udpCommand.begin(_commandPort);
 
-    Serial.printf("[NET] UDP sockets: %d (tx) / %d (rx)\n", _telemetryPort, _commandPort);
+    // ★ ЗАМЕНЕНО: теперь используем макрос SERIAL_DEBUG
+    SERIAL_DEBUG("[NET] UDP sockets: %d (tx) / %d (rx)\n", _telemetryPort, _commandPort);
 }
 
 // ============================================================
@@ -52,10 +56,12 @@ bool NetworkManager::startTask(uint8_t coreId, uint8_t priority)
         coreId);
     if (ok != pdPASS)
     {
-        Serial.println("[NET] Task creation FAILED");
+        // ★ ЗАМЕНЕНО: теперь используем макрос SERIAL_DEBUG
+        SERIAL_DEBUG("[NET] Task creation FAILED\n");
         return false;
     }
-    Serial.println("[NET] Task started");
+    // ★ ЗАМЕНЕНО: теперь используем макрос SERIAL_DEBUG
+    SERIAL_DEBUG("[NET] Task started\n");
     return true;
 }
 
@@ -73,20 +79,54 @@ void NetworkManager::networkTaskLoop()
     uint32_t periodMs = System_GetTelemetryPeriodMs();
     TickType_t lastWakeTime = xTaskGetTickCount();
 
+    Serial.printf("[NET] Loop started, period=%u ms\n", periodMs);
+
     for (;;)
     {
+        // обработка данных по сериал порту
+        g_serial.processIncoming();
         // 1. Приём команд от ПК
         uint8_t cmdBuf[64];
         if (receiveCommand(cmdBuf, sizeof(cmdBuf)))
         {
-            Serial.printf("[NET] Command received: 0x%02X\n", cmdBuf[0]);
+            // ★ ЗАМЕНЕНО: теперь используем макрос SERIAL_DEBUG
+            SERIAL_DEBUG("[NET] Command received: 0x%02X\n", cmdBuf[0]);
             // TODO: парсинг команд (Этап 3)
+        }
+
+        //  Приём бинарных команд по Serial
+        uint8_t serialCmdBuf[64];
+        size_t serialCmdLen;
+        if (g_serial.receiveBinaryCommand(serialCmdBuf, sizeof(serialCmdBuf), serialCmdLen))
+        {
+            // ★ ЗАМЕНЕНО: теперь используем макрос SERIAL_DEBUG
+            SERIAL_DEBUG("[NET] Serial binary command received: 0x%02X\n", serialCmdBuf[2]);
+            // TODO: обработка бинарной команды
+        }
+
+        //  Приём текстовых команд по Serial (WIFI_SET и т.д.)
+        char textCmdBuf[128];
+        if (g_serial.receiveTextCommand(textCmdBuf, sizeof(textCmdBuf)))
+        {
+            // ★ ЗАМЕНЕНО: теперь используем макрос SERIAL_DEBUG
+            SERIAL_DEBUG("[NET] Serial text command: %s\n", textCmdBuf);
+            // TODO: обработка текстовых команд (WIFI_SET, WIFI_CLEAR и т.д.)
         }
 
         // 2. Отправка телеметрии
         if (isConnected())
         {
             sendTelemetry();
+        }
+        else
+        {
+            // ★ Диагностика: раз в 10 сек сообщаем что WiFi не подключен
+            static uint32_t lastWarn = 0;
+            if (millis() - lastWarn > 10000)
+            {
+                Serial.println("[NET] ⚠ WiFi NOT connected, telemetry paused");
+                lastWarn = millis();
+            }
         }
 
         vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(periodMs));
@@ -121,8 +161,8 @@ void NetworkManager::sendTelemetry()
     pkt.imu.mag_z = l_mpuData.magZ;
 
     // Моторы (заглушки)
-    pkt.stepper_x.angle = 0.0f;
-    pkt.stepper_y.angle = 0.0f;
+    pkt.stepper_x_angle = 0.0f;
+    pkt.stepper_y_angle = 0.0f;
     for (int i = 0; i < 8; i++)
         pkt.servo_angles[i] = 0;
 
@@ -136,11 +176,11 @@ void NetworkManager::sendTelemetry()
 
     // ★ Отладка (раз в 2 сек)
     static uint32_t lastDbg = 0;
-    if (millis() - lastDbg > 2000)
+    if (millis() - lastDbg > 5000)
     {
-        Serial.printf("[NET] TX pkt #%u → %s | accel=(%.2f, %.2f, %.2f) | sizeof=%d\n",
+        Serial.printf("[NET] TX #%u → %s | accel=(%.2f, %.2f, %.2f) | size=%d\n",
                       pkt.packet_id,
-                      (_clientIPSet ? _clientIP.toString().c_str() : "broadcast"),
+                      (_clientIPSet ? _clientIP.toString().c_str() : "BROADCAST"),
                       pkt.imu.accel_x, pkt.imu.accel_y, pkt.imu.accel_z,
                       (int)sizeof(TelemetryPacket));
         lastDbg = millis();
@@ -150,6 +190,9 @@ void NetworkManager::sendTelemetry()
     _udpTelemetry.beginPacket(destIP, _telemetryPort);
     _udpTelemetry.write((const uint8_t *)&pkt, sizeof(TelemetryPacket));
     _udpTelemetry.endPacket();
+
+    // Отправка по Serial (COM-порт)
+    // g_serial.sendTelemetry(pkt);
 }
 
 // ============================================================
@@ -173,10 +216,12 @@ bool NetworkManager::receiveCommand(void *cmdBuf, size_t bufSize)
     if (rxBuffer[0] != TELEMETRY_HEADER_BYTE_0 || rxBuffer[1] != TELEMETRY_HEADER_BYTE_1)
         return false;
 
-    uint16_t receivedCRC = (uint16_t)(rxBuffer[readLen - 2] << 8) | rxBuffer[readLen - 1];
+    uint16_t receivedCRC = (uint16_t)(rxBuffer[readLen - 1] << 8) | rxBuffer[readLen - 2];
     uint16_t calcCRC = calcCRC16(rxBuffer, readLen - 2);
     if (receivedCRC != calcCRC)
-        return false;
+        Serial.printf("[NET] ⚠ CMD CRC mismatch: got 0x%04X, calc 0x%04X, len=%d\n",
+                      receivedCRC, calcCRC, (int)readLen);
+    return false;
 
     size_t payloadSize = readLen - 2;
     if (payloadSize > bufSize)
@@ -203,9 +248,17 @@ void NetworkManager::finalizePacket(TelemetryPacket &pkt)
 {
     pkt.header[0] = TELEMETRY_HEADER_BYTE_0;
     pkt.header[1] = TELEMETRY_HEADER_BYTE_1;
+
+    // ★ ИЗМЕНЕНО: packet_id теперь uint32_t (как в архитектуре)
     pkt.packet_id = _packetId++;
+
+    // ★ УБРАНО: поле reserved, т.к. packet_id вернули к uint32_t
+    // pkt.reserved[0] = 0;
+    // pkt.reserved[1] = 0;
+
+    // Timestamp
     pkt.timestamp_ms = millis();
 
-    size_t crcLen = sizeof(TelemetryPacket) - sizeof(uint16_t);
-    pkt.crc16 = calcCRC16((const uint8_t *)&pkt, crcLen);
+    // CRC16 (все байты кроме последних 2)
+    pkt.crc16 = calcCRC16((const uint8_t *)&pkt, sizeof(TelemetryPacket) - 2);
 }

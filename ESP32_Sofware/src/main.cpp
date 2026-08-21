@@ -2,6 +2,7 @@
 #include "Init/SystemInit.h"
 #include "Control/JoystickHandler.h"
 #include "Control/ManipulatorControl.h"
+#include "Communication/SerialPort.h"
 
 // Глобальное состояние манипулятора (используется в controlTask)
 control::ManipulatorState g_manipState;
@@ -26,6 +27,8 @@ void setup() {
     Serial.begin(115200);
     delay(2000); // Задержка для стабильного старта Serial
     Serial.println(F("=== ABENICS Controller Starting ==="));
+        // Инициализация COM-порта
+    g_serial.begin(115200);
 
     // Инициализация ВСЕХ систем.
     // Wi-Fi не блокирует: если не подключился — поднимет AP в фоне.
@@ -42,6 +45,9 @@ void setup() {
 }
 
 void loop() {
+
+       // Все задачи работают в FreeRTOS
+    vTaskDelay(portMAX_DELAY);
     // Serial мониторинг (работает ВСЕГДА, даже без Wi-Fi)
     if (Serial.available()) {
         char c = Serial.read();

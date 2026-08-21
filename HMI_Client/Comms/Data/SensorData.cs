@@ -8,12 +8,10 @@
 // ОТВЕЧАЕТ ЗА:
 // - Предоставление данных из TelemetryPacket через свойства WPF.
 // - Уведомление WPF об изменениях данных (INotifyPropertyChanged).
-
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using HMI_Client.Comms.Data;
 
-namespace HMI_Client.Comms.Data 
+namespace HMI_Client.Comms.Data
 {
     public class SensorData : INotifyPropertyChanged
     {
@@ -50,8 +48,10 @@ namespace HMI_Client.Comms.Data
         public float GyroY => _packet.GyroY;
         public float GyroZ => _packet.GyroZ;
         public sbyte WifiRssi => _packet.WifiRssi;
-        public CommandId CurrentCmd => _packet.CurrentCmd;
-        public StatusFlags StatusFlags => _packet.StatusFlags;
+        
+        // ★ ИСПРАВЛЕНО: packet → _packet
+        public CommandId CurrentCmd => (CommandId)_packet.CurrentCmd;
+        public StatusFlags StatusFlags => (StatusFlags)_packet.StatusFlags;
 
         public event PropertyChangedEventHandler? PropertyChanged;
 

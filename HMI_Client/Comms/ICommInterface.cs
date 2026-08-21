@@ -12,6 +12,7 @@
 using System;
 using System.Threading.Tasks;
 using HMI_Client.Comms.Data;
+using HMI_Client.Comms.Data;
 
 namespace HMI_Client.Comms
 {

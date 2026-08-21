@@ -1,147 +1,231 @@
-// File: HMI_Client/Comms/SerialSender.cs
-//
-// НАЗНАЧЕНИЕ:
-// Реализация интерфейса ICommInterface для получения данных и отправки команд через COM-порт.
-// Предоставляет альтернативный или основной канал связи, когда Wi-Fi недоступен или ненадежен.
-//
-// ОТВЕЧАЕТ ЗА:
-// - Подключение к ESP32 через COM-порт (System.IO.Ports.SerialPort).
-// - Чтение бинарных пакетов телеметрии из порта.
-// - Проверку CRC и валидацию пакетов.
-// - Отправку бинарных команд через COM-порт.
-// - Управление потоком данных (BackgroundWorker или Task с BlockingCollection для потокобезопасности).
-
 using System;
 using System.IO.Ports;
 using System.Threading;
 using System.Threading.Tasks;
 using HMI_Client.Comms.Data;
 using HMI_Client.Utils;
+using HMI_Client.Comms.Data;
 
 namespace HMI_Client.Comms
 {
-    public class SerialSender : ICommInterface
+    public class SerialSender : ICommInterface, IDisposable
     {
         private SerialPort? _serialPort;
-        private readonly object _lock = new object();
-        private bool _isRunning;
-        private CancellationTokenSource? _cancellationTokenSource;
+        private CancellationTokenSource? _cts;
+        private Task? _readTask;
+        private byte[] _buffer = new byte[2048];
+        private int _bufferPos = 0;
 
-        private const int DefaultBaudRate = 115200;
+        public string PortName { get; private set; } = "COM7";
+        public int BaudRate { get; set; } = 115200;
 
+        // События интерфейса ICommInterface
         public event Action<TelemetryPacket>? OnTelemetryReceived;
         public event Action<string>? OnLogMessage;
         public event Action<bool>? OnConnectionChanged;
 
-        public Task<bool> ConnectAsync(string connectionString)
+        public int PacketsReceived { get; private set; }
+        public int PacketsCorrupted { get; private set; }
+        public ushort LastPacketId { get; private set; }
+        public DateTime LastPacketTime { get; private set; }
+        public bool IsConnected => _serialPort?.IsOpen ?? false;
+
+        // ============================================================
+        //  ICommInterface: ConnectAsync
+        // ============================================================
+        public Task<bool> ConnectAsync(string? connectionString)
         {
-            if (string.IsNullOrWhiteSpace(connectionString)) return Task.FromResult(false);
+            string portName = connectionString ?? PortName;
+            return Task.FromResult(Connect(portName, BaudRate));
+        }
 
-            lock (_lock)
-            {
-                if (_isRunning || (_serialPort != null && _serialPort.IsOpen)) return Task.FromResult(false);
-            }
-
+        public bool Connect(string portName, int baudRate)
+        {
             try
             {
-                _cancellationTokenSource = new CancellationTokenSource();
-                _serialPort = new SerialPort(connectionString, DefaultBaudRate, Parity.None, 8, StopBits.One);
-                _serialPort.ReadBufferSize = 1024;
-                _serialPort.WriteBufferSize = 1024;
-                _serialPort.DataReceived += SerialPort_DataReceived;
-                _serialPort.Open();
-                _isRunning = true;
+                PortName = portName;
+                BaudRate = baudRate;
 
+                _serialPort = new SerialPort(portName, baudRate, Parity.None, 8, StopBits.One)
+                {
+                    ReadTimeout = 100,
+                    WriteTimeout = 100,
+                    ReadBufferSize = 4096,
+                    WriteBufferSize = 4096
+                };
+
+                _serialPort.Open();
+                _cts = new CancellationTokenSource();
+                _readTask = Task.Run(() => ReadLoop(_cts.Token));
+
+                OnLogMessage?.Invoke($"[Serial] Подключено: {portName} @ {baudRate}");
                 OnConnectionChanged?.Invoke(true);
-                Log($"🔌 Подключение к ESP32 по COM-порту: {_serialPort.PortName}");
-                return Task.FromResult(true);
+                return true;
             }
             catch (Exception ex)
             {
-                Log($"❌ Ошибка подключения к COM-порту: {ex.Message}");
-                Cleanup();
-                return Task.FromResult(false);
+                OnLogMessage?.Invoke($"[Serial] Ошибка подключения к {portName}: {ex.Message}");
+                OnConnectionChanged?.Invoke(false);
+                return false;
             }
         }
 
         public void Disconnect()
         {
-            lock (_lock) { if (!_isRunning) return; _isRunning = false; }
-            _cancellationTokenSource?.Cancel();
-            Cleanup();
-            OnConnectionChanged?.Invoke(false);
-        }
+            _cts?.Cancel();
+            _readTask?.Wait(1000);
 
-        private void Cleanup()
-        {
-            if (_serialPort != null)
+            if (_serialPort?.IsOpen == true)
             {
-                if (_serialPort.IsOpen) { _serialPort.DataReceived -= SerialPort_DataReceived; _serialPort.Close(); }
+                _serialPort.Close();
                 _serialPort.Dispose();
                 _serialPort = null;
             }
+
+            OnLogMessage?.Invoke("[Serial] Отключено");
+            OnConnectionChanged?.Invoke(false);
         }
 
-        private void SerialPort_DataReceived(object sender, SerialDataReceivedEventArgs e)
+        public void Dispose() => Disconnect();
+
+        // ============================================================
+        //  Цикл чтения
+        // ============================================================
+        private void ReadLoop(CancellationToken token)
         {
-            var port = (SerialPort)sender;
-            int bytesToRead = port.BytesToRead;
-            if (bytesToRead < TelemetryPacket.ExpectedSize) return;
-
-            byte[] buffer = new byte[bytesToRead];
-            int bytesRead = port.Read(buffer, 0, bytesToRead);
-
-            for (int i = 0; i <= bytesRead - TelemetryPacket.ExpectedSize; i++)
+            while (!token.IsCancellationRequested && _serialPort?.IsOpen == true)
             {
-                if (buffer[i] == 0xAA && buffer[i + 1] == 0x55)
+                try
                 {
-                    byte[] packetBuffer = new byte[TelemetryPacket.ExpectedSize];
-                    Array.Copy(buffer, i, packetBuffer, 0, TelemetryPacket.ExpectedSize);
-                    if (ValidateAndProcessPacket(packetBuffer)) break;
+                    int bytesRead = _serialPort.Read(_buffer, _bufferPos, _buffer.Length - _bufferPos);
+                    if (bytesRead <= 0) continue;
+
+                    _bufferPos += bytesRead;
+                    ProcessBuffer();
+                }
+                catch (TimeoutException) { }
+                catch (Exception ex)
+                {
+                    if (!token.IsCancellationRequested)
+                        OnLogMessage?.Invoke($"[Serial] Ошибка чтения: {ex.Message}");
+                    break;
                 }
             }
         }
 
-        private bool ValidateAndProcessPacket(byte[] data)
+        private void ProcessBuffer()
         {
-            ushort receivedCrc = (ushort)(data[101] | (data[102] << 8));
-            ushort calculatedCrc = Crc16Helper.Calculate(data, data.Length - 2);
-            if (calculatedCrc != receivedCrc) return false;
+            while (_bufferPos >= 2)
+            {
+                int headerIndex = FindHeader();
+                if (headerIndex < 0)
+                {
+                    if (_bufferPos > 0)
+                    {
+                        _buffer[0] = _buffer[_bufferPos - 1];
+                        _bufferPos = 1;
+                    }
+                    return;
+                }
 
-            var packet = BytesToStruct<TelemetryPacket>(data);
-            OnTelemetryReceived?.Invoke(packet);
-            return true;
+                if (headerIndex > 0)
+                {
+                    Array.Copy(_buffer, headerIndex, _buffer, 0, _bufferPos - headerIndex);
+                    _bufferPos -= headerIndex;
+                }
+
+                if (_bufferPos < TelemetryPacket.ExpectedSize)
+                    return;
+
+                // CRC little-endian: [lo] [hi]
+                ushort receivedCRC = (ushort)(_buffer[101] | (_buffer[102] << 8));
+                ushort calcCRC = Crc16Helper.Calculate(_buffer, 101);
+
+                if (receivedCRC == calcCRC)
+                {
+                    try
+                    {
+                        var packet = TelemetryPacket.FromBytes(_buffer);
+                        LastPacketId = (ushort)packet.PacketId;
+                        LastPacketTime = DateTime.Now;
+                        PacketsReceived++;
+                        OnTelemetryReceived?.Invoke(packet);
+                    }
+                    catch (Exception ex)
+                    {
+                        OnLogMessage?.Invoke($"[Serial] Ошибка десериализации: {ex.Message}");
+                        PacketsCorrupted++;
+                    }
+                }
+                else
+                {
+                    PacketsCorrupted++;
+                }
+
+                int remaining = _bufferPos - TelemetryPacket.ExpectedSize;
+                if (remaining > 0)
+                {
+                    Array.Copy(_buffer, TelemetryPacket.ExpectedSize, _buffer, 0, remaining);
+                }
+                _bufferPos = remaining;
+            }
         }
 
+        private int FindHeader()
+        {
+            for (int i = 0; i <= _bufferPos - 2; i++)
+            {
+                if (_buffer[i] == 0xAA && _buffer[i + 1] == 0x55)
+                    return i;
+            }
+            return -1;
+        }
+
+        // ============================================================
+        //  ICommInterface: SendCommand
+        // ============================================================
         public void SendCommand(CommandId cmd, byte[]? payload = null)
         {
-            lock (_lock) { if (!_isRunning || _serialPort == null || !_serialPort.IsOpen) return; }
-            byte[] packet = BuildCommandPacket(cmd, payload);
-            try { _serialPort!.Write(packet, 0, packet.Length); }
-            catch (Exception ex) { Log($"❌ Ошибка отправки по COM: {ex.Message}"); }
-        }
+            if (_serialPort?.IsOpen != true)
+            {
+                OnLogMessage?.Invoke("[Serial] Попытка отправки команды без подключения");
+                return;
+            }
 
-        private byte[] BuildCommandPacket(CommandId cmdId, byte[]? payload = null)
-        {
             int payloadLen = payload?.Length ?? 0;
-            int totalLen = 2 + 1 + payloadLen + 2;
-            byte[] packet = new byte[totalLen];
-            packet[0] = 0xAA; packet[1] = 0x55; packet[2] = (byte)cmdId;
-            if (payload != null && payloadLen > 0) Array.Copy(payload, 0, packet, 3, payloadLen);
-            ushort crc = Crc16Helper.Calculate(packet, totalLen - 2);
-            packet[totalLen - 2] = (byte)(crc & 0xFF);
-            packet[totalLen - 1] = (byte)((crc >> 8) & 0xFF);
-            return packet;
+            int packetLen = 3 + payloadLen + 2;
+            byte[] cmdPacket = new byte[packetLen];
+
+            cmdPacket[0] = 0xAA;
+            cmdPacket[1] = 0x55;
+            cmdPacket[2] = (byte)cmd;
+
+            if (payload != null)
+                Array.Copy(payload, 0, cmdPacket, 3, payloadLen);
+
+            ushort crc = Crc16Helper.Calculate(cmdPacket, packetLen - 2);
+            cmdPacket[packetLen - 2] = (byte)(crc & 0xFF);
+            cmdPacket[packetLen - 1] = (byte)((crc >> 8) & 0xFF);
+
+            try
+            {
+                _serialPort.Write(cmdPacket, 0, cmdPacket.Length);
+            }
+            catch (Exception ex)
+            {
+                OnLogMessage?.Invoke($"[Serial] Ошибка отправки: {ex.Message}");
+            }
         }
 
-        private static T BytesToStruct<T>(byte[] bytes) where T : struct
+        public static string[] GetAvailablePorts()
         {
-            int size = System.Runtime.InteropServices.Marshal.SizeOf<T>();
-            IntPtr ptr = System.Runtime.InteropServices.Marshal.AllocHGlobal(size);
-            try { System.Runtime.InteropServices.Marshal.Copy(bytes, 0, ptr, Math.Min(size, bytes.Length)); return System.Runtime.InteropServices.Marshal.PtrToStructure<T>(ptr); }
-            finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(ptr); }
+            try { return SerialPort.GetPortNames(); }
+            catch { return Array.Empty<string>(); }
         }
 
-        private void Log(string msg) => OnLogMessage?.Invoke($"[SERIAL] {msg}");
+        public static int[] GetStandardBaudRates()
+        {
+            return new[] { 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600 };
+        }
     }
 }

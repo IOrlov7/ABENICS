@@ -45,6 +45,7 @@ private:
 
     uint16_t _telemetryPort;   // ★ Сохраняем порт
     uint16_t _commandPort;     // ★ Сохраняем порт
+    uint16_t g_packetCounter = 0;  // было uint32_t
 
     uint16_t _packetId;
     IPAddress _clientIP;

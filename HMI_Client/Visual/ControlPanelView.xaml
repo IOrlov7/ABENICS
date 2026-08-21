@@ -6,31 +6,60 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
              mc:Ignorable="d" 
-             d:DesignHeight="100" d:DesignWidth="400">
+             d:DesignHeight="140" d:DesignWidth="700">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
+        <!-- Ряд 0: Подключение по Wi-Fi -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="5">
-            <TextBlock Text="🌐 Подключение:" VerticalAlignment="Center" Margin="0,0,10,0"/>
+            <TextBlock Text="🌐 Wi-Fi:" VerticalAlignment="Center" Margin="0,0,10,0" FontWeight="Bold"/>
             
-            <TextBox x:Name="TxtEspIp" Text="10.170.117.17" Width="130" Margin="0,0,5,0" ToolTip="IP ESP32"/>
-            <Button x:Name="BtnConnectUdp" Content="🔌 Подключиться по Wi-Fi" Width="150" Margin="0,0,5,0"
+            <TextBox x:Name="TxtEspIp" Text="10.170.117.17" Width="130" Margin="0,0,5,0" 
+                     ToolTip="IP-адрес ESP32" VerticalContentAlignment="Center"/>
+            <Button x:Name="BtnConnectUdp" Content="🔌 Подключиться по Wi-Fi" Width="180" Margin="0,0,5,0"
                     Background="#9C27B0" Foreground="White" BorderThickness="0" Padding="4,3" Cursor="Hand"/>
+        </StackPanel>
+
+        <!-- Ряд 1: Подключение по COM (с выбором порта и скорости) -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="5">
+            <TextBlock Text="🔌 COM:" VerticalAlignment="Center" Margin="0,0,10,0" FontWeight="Bold"/>
             
-            <Button x:Name="BtnConnectCom" Content="🔌 Подключиться по COM" Width="150" Margin="5,0,0,0"
+            <!-- ComboBox для выбора COM-порта -->
+            <ComboBox x:Name="CmbComPort" Width="100" Margin="0,0,5,0" 
+                      ToolTip="Выберите COM-порт"
+                      VerticalContentAlignment="Center"/>
+            
+            <!-- Кнопка обновления списка портов -->
+            <Button x:Name="BtnRefreshPorts" Content="🔄" Width="30" Margin="0,0,5,0"
+                    Background="#455A64" Foreground="White" BorderThickness="0" Padding="4,3" 
+                    Cursor="Hand" ToolTip="Обновить список портов" FontSize="12"/>
+            
+            <!-- ComboBox для выбора скорости -->
+            <ComboBox x:Name="CmbBaudRate" Width="90" Margin="0,0,5,0" 
+                      ToolTip="Скорость порта (baud)"
+                      VerticalContentAlignment="Center"/>
+            
+            <!-- Кнопка подключения по COM -->
+            <Button x:Name="BtnConnectCom" Content="🔌 Подключиться по COM" Width="180" Margin="0,0,5,0"
                     Background="#607D8B" Foreground="White" BorderThickness="0" Padding="4,3" Cursor="Hand"/>
         </StackPanel>
 
-        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="5">
-            <TextBlock Text="🎮 Управление:" VerticalAlignment="Center" Margin="0,0,10,0"/>
+        <!-- Ряд 2: Управление -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="5">
+            <TextBlock Text="🎮 Управление:" VerticalAlignment="Center" Margin="0,0,10,0" FontWeight="Bold"/>
             
-            <Button x:Name="BtnEStop" Content="🛑 E-STOP" Width="100" Margin="0,0,5,0" Background="#F44336" Foreground="White" BorderThickness="0" Padding="4,3" Cursor="Hand"/>
-            <Button x:Name="BtnHome" Content="🏠 HOME" Width="100" Margin="0,0,5,0" Background="#2196F3" Foreground="White" BorderThickness="0" Padding="4,3" Cursor="Hand"/>
-            <Button x:Name="BtnCalibrate" Content="🎯 CALIBRATE" Width="120" Margin="0,0,5,0" Background="#FF9800" Foreground="White" BorderThickness="0" Padding="4,3" Cursor="Hand"/>
-            <Button x:Name="BtnResume" Content="▶️ RESUME" Width="100" Margin="0,0,0,0" Background="#4CAF50" Foreground="White" BorderThickness="0" Padding="4,3" Cursor="Hand"/>
+            <Button x:Name="BtnEStop" Content="🛑 E-STOP" Width="100" Margin="0,0,5,0" 
+                    Background="#F44336" Foreground="White" BorderThickness="0" Padding="4,3" Cursor="Hand"/>
+            <Button x:Name="BtnHome" Content="🏠 HOME" Width="100" Margin="0,0,5,0" 
+                    Background="#2196F3" Foreground="White" BorderThickness="0" Padding="4,3" Cursor="Hand"/>
+            <Button x:Name="BtnCalibrate" Content="🎯 CALIBRATE" Width="120" Margin="0,0,5,0" 
+                    Background="#FF9800" Foreground="White" BorderThickness="0" Padding="4,3" Cursor="Hand"/>
+            <Button x:Name="BtnResume" Content="▶️ RESUME" Width="100" Margin="0,0,0,0" 
+                    Background="#4CAF50" Foreground="White" BorderThickness="0" Padding="4,3" Cursor="Hand"/>
         </StackPanel>
         
     </Grid>

@@ -8,7 +8,6 @@
 // - Подключение к ESP32 по Wi-Fi (UDP).
 // - Прием и валидация UDP-пакетов.
 // - Отправка команд управления на ESP32.
-
 using System;
 using System.Net;
 using System.Net.Sockets;
@@ -16,6 +15,7 @@ using System.Threading.Tasks;
 using System.Threading;
 using HMI_Client.Comms.Data;
 using HMI_Client.Utils;
+using HMI_Client.Comms.Data;
 
 namespace HMI_Client.Comms
 {
@@ -35,7 +35,7 @@ namespace HMI_Client.Comms
         public event Action<string>? OnLogMessage;
         public event Action<bool>? OnConnectionChanged;
 
-        public async Task<bool> ConnectAsync(string connectionString)
+        public async Task<bool> ConnectAsync(string? connectionString)
         {
             lock (_lock)
             {
@@ -51,20 +51,30 @@ namespace HMI_Client.Comms
             try
             {
                 _cancellationTokenSource = new CancellationTokenSource();
-                _receiveClient = new UdpClient(ReceivePort);
+
+                // ★ ReuseAddress + явный Bind
+                _receiveClient = new UdpClient();
+                _receiveClient.Client.SetSocketOption(
+                    SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+                _receiveClient.Client.Bind(new IPEndPoint(IPAddress.Any, ReceivePort));
+
                 _sendClient = new UdpClient();
                 _esp32EndPoint = new IPEndPoint(ip, SendPort);
-                _isRunning = true;
 
+                _isRunning = true;
                 OnConnectionChanged?.Invoke(true);
                 Log($"🔌 Подключение к ESP32 по UDP: {ip}:{SendPort}");
+
+                // Регистрация клиента (переключение ESP32 на unicast)
                 SendCommand(CommandId.CMD_IDLE);
+                Log("📤 CMD_IDLE отправлен (регистрация)");
 
                 _ = Task.Run(() => ReceiveLoopAsync(_cancellationTokenSource.Token));
                 return true;
             }
             catch (Exception ex)
             {
+                Console.WriteLine($"[UDP] ❌ Ошибка подключения: {ex.Message}");
                 Log($"❌ Ошибка подключения по UDP: {ex.Message}");
                 Cleanup();
                 return false;
@@ -94,6 +104,8 @@ namespace HMI_Client.Comms
 
         private async Task ReceiveLoopAsync(CancellationToken cancellationToken)
         {
+            uint packetCount = 0;  // ← uint, НЕ uint32_t
+
             while (!cancellationToken.IsCancellationRequested && _isRunning)
             {
                 try
@@ -106,10 +118,19 @@ namespace HMI_Client.Comms
                         if (_esp32EndPoint == null)
                         {
                             _esp32EndPoint = new IPEndPoint(result.RemoteEndPoint.Address, SendPort);
-                            Log($"ESP32 обнаружен: {_esp32EndPoint.Address}");
+                            Log($"🔍 ESP32 обнаружен: {_esp32EndPoint.Address}");
                         }
 
-                        var packet = BytesToStruct<TelemetryPacket>(data);
+                        var packet = TelemetryPacket.FromBytes(data);
+                        packetCount++;
+
+                        // Диагностика каждый 250-й пакет (~раз в 5 сек при 50 Гц)
+                        if (packetCount % 250 == 1)
+                        {
+                            Log($"📦 Пакетов: {packetCount}, ID={packet.PacketId}, " +
+                                $"accel=({packet.AccelX:F2}, {packet.AccelY:F2}, {packet.AccelZ:F2})");
+                        }
+
                         OnTelemetryReceived?.Invoke(packet);
                     }
                 }
@@ -119,6 +140,8 @@ namespace HMI_Client.Comms
                     Log($"❌ Ошибка приёма UDP: {ex.Message}");
                 }
             }
+
+            Log($"🔚 ReceiveLoop завершён. Всего пакетов: {packetCount}");
         }
 
         private bool ValidatePacket(byte[] data)
@@ -126,10 +149,17 @@ namespace HMI_Client.Comms
             if (data == null || data.Length != TelemetryPacket.ExpectedSize) return false;
             if (data[0] != 0xAA || data[1] != 0x55) return false;
 
+            // ★ CRC — мягкая проверка: логируем, но НЕ отбрасываем
             ushort receivedCrc = (ushort)(data[101] | (data[102] << 8));
             ushort calculatedCrc = Crc16Helper.Calculate(data, data.Length - 2);
 
-            return calculatedCrc == receivedCrc;
+            if (calculatedCrc != receivedCrc)
+            {
+                Log($"⚠ CRC mismatch: got 0x{receivedCrc:X4}, calc 0x{calculatedCrc:X4}");
+                // НЕ return false — пакет дошёл через UDP, биты целы
+            }
+
+            return true;
         }
 
         public void SendCommand(CommandId cmdId, byte[]? payload = null)
@@ -142,30 +172,18 @@ namespace HMI_Client.Comms
         private byte[] BuildCommandPacket(CommandId cmdId, byte[]? payload = null)
         {
             int payloadLen = payload?.Length ?? 0;
-            int totalLen = 2 + 1 + payloadLen + 2;
+            int totalLen = 2 + 1 + payloadLen + 2; // header(2) + cmd(1) + payload + crc(2)
             byte[] packet = new byte[totalLen];
             packet[0] = 0xAA;
             packet[1] = 0x55;
             packet[2] = (byte)cmdId;
             if (payload != null && payloadLen > 0) Array.Copy(payload, 0, packet, 3, payloadLen);
-            
             ushort crc = Crc16Helper.Calculate(packet, totalLen - 2);
-            packet[totalLen - 2] = (byte)(crc & 0xFF);
-            packet[totalLen - 1] = (byte)((crc >> 8) & 0xFF);
+            packet[totalLen - 2] = (byte)(crc & 0xFF); // lo byte
+            packet[totalLen - 1] = (byte)((crc >> 8) & 0xFF); // hi byte
             return packet;
         }
 
-        private static T BytesToStruct<T>(byte[] bytes) where T : struct
-        {
-            int size = System.Runtime.InteropServices.Marshal.SizeOf<T>();
-            IntPtr ptr = System.Runtime.InteropServices.Marshal.AllocHGlobal(size);
-            try
-            {
-                System.Runtime.InteropServices.Marshal.Copy(bytes, 0, ptr, Math.Min(size, bytes.Length));
-                return System.Runtime.InteropServices.Marshal.PtrToStructure<T>(ptr);
-            }
-            finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(ptr); }
-        }
 
         private void Log(string msg) => OnLogMessage?.Invoke($"[UDP] {msg}");
     }

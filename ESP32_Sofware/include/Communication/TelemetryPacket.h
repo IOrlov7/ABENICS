@@ -65,29 +65,46 @@ struct System_State {
     // Итого: 3 байта
 };
 
+#pragma pack(push, 1)
 struct TelemetryPacket {
-    // Заголовок
-    uint8_t header[2];       // 2 байта: 0xAA, 0x55
-    uint32_t packet_id;      // ★ ИЗМЕНЕНО: uint32_t (4 байта, вместо uint16_t)
-    uint32_t timestamp_ms;   // 4 байта
+    uint8_t  header[2];         // 0: 0xAA, 0x55
+    uint32_t packet_id;         // 2: счётчик (uint32!)
+    uint32_t timestamp_ms;      // 6: millis()
 
-    // Полезная нагрузка
-    IMU_Data imu;                    // 64 байта
-    Motor_Telemetry stepper_x;      //  4 байта
-    Motor_Telemetry stepper_y;      //  4 байта
-    uint16_t servo_angles[8];       // 16 байт (8 серво)
-    System_State system;            //  3 байта
+    struct {
+        float quat_w;           // 10
+        float quat_x;           // 14
+        float quat_y;           // 18
+        float quat_z;           // 22
+        float roll;             // 26
+        float pitch;            // 30
+        float yaw;              // 34
+        float accel_x;          // 38 (float!)
+        float accel_y;          // 42
+        float accel_z;          // 46
+        float gyro_x;           // 50
+        float gyro_y;           // 54
+        float gyro_z;           // 58
+        float mag_x;            // 62
+        float mag_y;            // 66
+        float mag_z;            // 70
+    } imu;
 
-    // Контрольная сумма
-    uint16_t crc16;                  //  2 байта
-    // Итого: 2+4+4+64+4+4+16+3+2 = 103 байта ✓
+    float stepper_x_angle;      // 74
+    float stepper_y_angle;      // 78
+    uint16_t servo_angles[8];   // 82 (16 байт)
+
+    struct {
+        uint8_t current_cmd;    // 98
+        uint8_t status_flags;   // 99
+        int8_t  wifi_rssi;      // 100
+    } system;
+
+    uint16_t crc16;             // 101
 };
-
 #pragma pack(pop)
 
-// Статическая проверка размера
-static_assert(sizeof(TelemetryPacket) == 103,
-              "TelemetryPacket size mismatch! Check alignment.");
+static_assert(sizeof(TelemetryPacket) == 103, "Packet size mismatch!");
 
 #define TELEMETRY_PACKET_SIZE sizeof(TelemetryPacket)
 #define TELEMETRY_HEADER_BYTE_0 0xAA
