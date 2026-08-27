@@ -2,7 +2,7 @@
 //
 // НАЗНАЧЕНИЕ:
 // Вычисление CRC16 по алгоритму ESP-IDF (esp_crc16_le).
-// Это CRC-16/CCITT-FALSE: полином 0x1021, init 0xFFFF, без отражения.
+// Это CRC-16/MODBUS: полином 0x8408 (bit-reversed 0x1021), init 0xFFFF.
 //
 using System;
 
@@ -11,8 +11,9 @@ namespace HMI_Client.Utils
     public static class Crc16Helper
     {
         /// <summary>
-        /// Вычисляет CRC16 по алгоритму CRC-16/CCITT-FALSE.
-        /// Полином: 0x1021, начальное значение: 0xFFFF.
+        /// Вычисляет CRC16 по алгоритму esp_crc16_le (CRC-16/MODBUS).
+        /// Полином: 0x8408 (bit-reversed), начальное значение: 0xFFFF.
+        /// Совместим с ESP32 esp_crc16_le(UINT16_MAX, data, len).
         /// </summary>
         public static ushort Calculate(byte[] data, int length)
         {
@@ -20,17 +21,17 @@ namespace HMI_Client.Utils
             
             for (int i = 0; i < length; i++)
             {
-                crc ^= (ushort)(data[i] << 8);
+                crc ^= data[i];
                 
                 for (int j = 0; j < 8; j++)
                 {
-                    if ((crc & 0x8000) != 0)
+                    if ((crc & 0x0001) != 0)
                     {
-                        crc = (ushort)((crc << 1) ^ 0x1021);
+                        crc = (ushort)((crc >> 1) ^ 0x8408);
                     }
                     else
                     {
-                        crc <<= 1;
+                        crc >>= 1;
                     }
                 }
             }

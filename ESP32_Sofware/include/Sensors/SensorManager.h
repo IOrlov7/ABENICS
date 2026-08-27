@@ -6,6 +6,8 @@
 // ★ УБРАТЬ: #include "ProjectConfig.h" (не нужен для сигнатуры begin)
 #include <Arduino.h>
 #include <Wire.h> // Для TwoWire
+#include "Sensors/MPU6500/MPU6500_Handler.h"
+#include "Sensors/MPU6500/MPU6500_Orientation_Handler.h" 
 
 class MPU6500_Handler; // ★ Предварительное объявление
 
@@ -49,6 +51,7 @@ private:
     static void taskEntry(void* arg);
 
     MPU6500_Handler* _imuHandler = nullptr;
+    Orientation_Handler* _orientationHandler = nullptr; 
     // ★ УБРАТЬ: SensorType _type = SensorType::UNKNOWN;
     bool _initialized = false;
     // Добавьте сюда поля для фильтра Маджвика или других вычислений, если нужно

@@ -24,9 +24,9 @@ void SerialPort::begin(uint32_t baudrate)
     _baudrate = baudrate;
     Serial.begin(baudrate);
     _enabled = true;
-    _suppressDebug = true; // ★ ПОДАВЛЯЕМ отладку при активном COM
-    // ★ ЗАМЕНЕНО: теперь используем макрос SERIAL_DEBUG
-    SERIAL_DEBUG("[SERIAL] COM-port initialized at %u baud\n", baudrate);
+    // ★ Отладочное сообщение ДО подавления
+    Serial.printf("[SERIAL] COM-port initialized at %u baud\n", baudrate);
+    _suppressDebug = true; // ★ ПОДАВЛЯЕМ отладку после вывода сообщения
 }
 
 bool SerialPort::isDebugSuppressed() const {

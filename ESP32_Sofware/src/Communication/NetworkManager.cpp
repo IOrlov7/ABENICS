@@ -79,7 +79,8 @@ void NetworkManager::networkTaskLoop()
     uint32_t periodMs = System_GetTelemetryPeriodMs();
     TickType_t lastWakeTime = xTaskGetTickCount();
 
-    Serial.printf("[NET] Loop started, period=%u ms\n", periodMs);
+    // ★ ИСПРАВЛЕНО: используем SERIAL_DEBUG чтобы не портить бинарный поток
+    SERIAL_DEBUG("[NET] Loop started, period=%u ms\n", periodMs);
 
     for (;;)
     {
@@ -174,11 +175,11 @@ void NetworkManager::sendTelemetry()
     // Заголовок + CRC
     finalizePacket(pkt);
 
-    // ★ Отладка (раз в 2 сек)
+    // ★ Отладка (раз в 5 сек) — используем SERIAL_DEBUG чтобы не портить бинарный поток
     static uint32_t lastDbg = 0;
     if (millis() - lastDbg > 5000)
     {
-        Serial.printf("[NET] TX #%u → %s | accel=(%.2f, %.2f, %.2f) | size=%d\n",
+        SERIAL_DEBUG("[NET] TX #%u → %s | accel=(%.2f, %.2f, %.2f) | size=%d\n",
                       pkt.packet_id,
                       (_clientIPSet ? _clientIP.toString().c_str() : "BROADCAST"),
                       pkt.imu.accel_x, pkt.imu.accel_y, pkt.imu.accel_z,
@@ -192,7 +193,7 @@ void NetworkManager::sendTelemetry()
     _udpTelemetry.endPacket();
 
     // Отправка по Serial (COM-порт)
-    // g_serial.sendTelemetry(pkt);
+    g_serial.sendTelemetry(pkt);
 }
 
 // ============================================================
@@ -219,9 +220,11 @@ bool NetworkManager::receiveCommand(void *cmdBuf, size_t bufSize)
     uint16_t receivedCRC = (uint16_t)(rxBuffer[readLen - 1] << 8) | rxBuffer[readLen - 2];
     uint16_t calcCRC = calcCRC16(rxBuffer, readLen - 2);
     if (receivedCRC != calcCRC)
+    {
         Serial.printf("[NET] ⚠ CMD CRC mismatch: got 0x%04X, calc 0x%04X, len=%d\n",
                       receivedCRC, calcCRC, (int)readLen);
-    return false;
+        return false;
+    }
 
     size_t payloadSize = readLen - 2;
     if (payloadSize > bufSize)
@@ -241,24 +244,8 @@ bool NetworkManager::isConnected() const
 
 uint16_t NetworkManager::calcCRC16(const uint8_t *data, size_t len) const
 {
-    // CRC-16/CCITT-FALSE: полином 0x1021, init 0xFFFF
-    uint16_t crc = 0xFFFF;
-    for (size_t i = 0; i < len; i++)
-    {
-        crc ^= (uint16_t)data[i] << 8;
-        for (int j = 0; j < 8; j++)
-        {
-            if (crc & 0x8000)
-            {
-                crc = (crc << 1) ^ 0x1021;
-            }
-            else
-            {
-                crc <<= 1;
-            }
-        }
-    }
-    return crc;
+    // CRC-16/MODBUS (совместим с esp_crc16_le в SerialPort)
+    return esp_crc16_le(UINT16_MAX, data, len);
 }
 
 void NetworkManager::finalizePacket(TelemetryPacket &pkt)

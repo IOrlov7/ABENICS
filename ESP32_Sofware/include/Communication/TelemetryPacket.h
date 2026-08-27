@@ -65,7 +65,6 @@ struct System_State {
     // Итого: 3 байта
 };
 
-#pragma pack(push, 1)
 struct TelemetryPacket {
     uint8_t  header[2];         // 0: 0xAA, 0x55
     uint32_t packet_id;         // 2: счётчик (uint32!)

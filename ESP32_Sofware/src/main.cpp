@@ -24,11 +24,9 @@ void controlTask(void* pvParameters) {
 }
 
 void setup() {
-    Serial.begin(115200);
-    delay(2000); // Задержка для стабильного старта Serial
+    delay(2000); // Задержка для стабильного старта
+    // Инициализация COM-порта (Serial.begin вызывается внутри)
     Serial.println(F("=== ABENICS Controller Starting ==="));
-        // Инициализация COM-порта
-    g_serial.begin(115200);
 
     // Инициализация ВСЕХ систем.
     // Wi-Fi не блокирует: если не подключился — поднимет AP в фоне.
@@ -42,6 +40,9 @@ void setup() {
     System_StartTasks();
 
     Serial.println(F("=== Setup complete. Joystick control ACTIVE. ==="));
+    
+    // ★ ТЕПЕРЬ инициализируем SerialPort (подавляет отладку для защиты бинарного потока)
+    g_serial.begin(115200);
 }
 
 void loop() {

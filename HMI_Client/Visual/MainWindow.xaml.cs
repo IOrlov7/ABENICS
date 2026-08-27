@@ -1,4 +1,5 @@
-﻿using System;
+﻿// File: HMI_Client/Visual/MainWindow.xaml.cs
+using System;
 using System.Windows;
 using System.Windows.Threading;
 using System.Diagnostics;
@@ -39,43 +40,63 @@ namespace HMI_Client.Visual
                 _activeInterface.OnTelemetryReceived -= OnTelemetryReceived;
                 _activeInterface.OnLogMessage -= OnLogMessage;
                 _activeInterface.OnConnectionChanged -= OnConnectionChanged;
+                _activeInterface.Disconnect();
             }
             _activeInterface = selectedInterface;
             _activeInterface.OnTelemetryReceived += OnTelemetryReceived;
             _activeInterface.OnLogMessage += OnLogMessage;
             _activeInterface.OnConnectionChanged += OnConnectionChanged;
+            
+            // 🔴 Логируем в LogView
+            UiDispatcher.Invoke(() => 
+                LogView.AppendLog($"[MAIN] Подключён интерфейс: {selectedInterface.GetType().Name}"));
         }
 
         private void OnTelemetryReceived(TelemetryPacket packet)
         {
             _sensorData.UpdateFromPacket(packet);
             
-            // 🔴 ДИАГНОСТИКА: Печать каждые 50 пакетов (~1 раз в секунду при 50 Гц)
-            if (packet.PacketId % 50 == 0)
+            // 🔴 ДИАГНОСТИКА: Первые 5 пакетов — выводим ВСЁ в LogView
+            if (_packetCount < 5)
             {
-                double quatNorm = Math.Sqrt(packet.QuatW * packet.QuatW + packet.QuatX * packet.QuatX + packet.QuatY * packet.QuatY + packet.QuatZ * packet.QuatZ);
-                Debug.WriteLine($"[MainWindow] 📦 Пакет #{packet.PacketId}: Quat=({packet.QuatW:F4}, {packet.QuatX:F4}, {packet.QuatY:F4}, {packet.QuatZ:F4}), Norm={quatNorm:F4}");
+                double quatNorm = Math.Sqrt(
+                    packet.QuatW * packet.QuatW + 
+                    packet.QuatX * packet.QuatX + 
+                    packet.QuatY * packet.QuatY + 
+                    packet.QuatZ * packet.QuatZ);
                 
-                if (Math.Abs(quatNorm - 1.0) > 0.1)
+                UiDispatcher.Invoke(() =>
                 {
-                    Debug.WriteLine($"[MainWindow] ⚠️ ВНИМАНИЕ: Кватернион НЕ нормализован на уровне пакета!");
-                }
-                if (packet.QuatW == 1.0f && packet.QuatX == 0.0f && packet.QuatY == 0.0f && packet.QuatZ == 0.0f)
-                {
-                    Debug.WriteLine($"[MainWindow] ⚠️ ВНИМАНИЕ: Кватернион = (1,0,0,0) — фильтр Madgwick на ESP32 не обновляет данные!");
-                }
+                    LogView.AppendLog($"[QUAT] Пакет #{_packetCount}, ID={packet.PacketId}");
+                    LogView.AppendLog($"[QUAT] W={packet.QuatW:F4}, X={packet.QuatX:F4}, Y={packet.QuatY:F4}, Z={packet.QuatZ:F4}");
+                    LogView.AppendLog($"[QUAT] Norm={quatNorm:F4}");
+                    LogView.AppendLog($"[QUAT] Euler=({packet.EulerRoll:F1}°, {packet.EulerPitch:F1}°, {packet.EulerYaw:F1}°)");
+                    
+                    if (packet.QuatW == 1.0f && packet.QuatX == 0.0f && 
+                        packet.QuatY == 0.0f && packet.QuatZ == 0.0f)
+                    {
+                        LogView.AppendLog("[QUAT] ⚠️ ВНИМАНИЕ: Quat=(1,0,0,0) — Madgwick не обновляется!");
+                    }
+                });
+            }
+            
+            // 🔴 Каждые 100 пакетов — краткий лог
+            if (_packetCount % 100 == 0 && _packetCount > 0)
+            {
+                UiDispatcher.Invoke(() =>
+                    LogView.AppendLog($"[QUAT] Пакет #{_packetCount}: W={packet.QuatW:F2}, X={packet.QuatX:F2}, Y={packet.QuatY:F2}, Z={packet.QuatZ:F2}"));
             }
 
             UiDispatcher.Invoke(() =>
             {
-                // 🔴 ДИАГНОСТИКА: Проверка перед вызовом
-                if (Visualizer3D != null)
+                // 🔴 Проверка Visualizer3D
+                if (Visualizer3D == null && _packetCount == 0)
                 {
-                    Visualizer3D.UpdateRotation(packet.QuatW, packet.QuatX, packet.QuatY, packet.QuatZ);
+                    LogView.AppendLog("[3D] ❌ Visualizer3D == null! Проверь x:Name в MainWindow.xaml");
                 }
                 else
                 {
-                    Debug.WriteLine("[MainWindow] ❌ Visualizer3D == null! Проверь x:Name=\"Visualizer3D\" в MainWindow.xaml");
+                    Visualizer3D.UpdateRotation(packet.QuatW, packet.QuatX, packet.QuatY, packet.QuatZ);
                 }
 
                 TxtRoll.Text = $"{packet.EulerRoll:F1}°";
@@ -97,6 +118,7 @@ namespace HMI_Client.Visual
             UiDispatcher.Invoke(() =>
             {
                 TxtStatus.Text = isConnected ? "🟢 Подключено" : "🔴 Отключено";
+                LogView.AppendLog(isConnected ? "[CONN] 🟢 Соединение установлено" : "[CONN] 🔴 Соединение разорвано");
                 if (isConnected) _telemetryLogger.StartLogging();
                 else _telemetryLogger.StopLogging();
             });

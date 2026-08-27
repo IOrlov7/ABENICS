@@ -1,0 +1,12 @@
+# PlatformIO / ESP32
+.pio/
+build/
+
+# .NET / C# WPF
+bin/
+obj/
+.vs/
+
+# Общие
+.git/
+node_modules/

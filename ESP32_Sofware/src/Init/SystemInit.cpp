@@ -15,23 +15,25 @@
 
 static ProjectConfig g_config;
 
-ServoController    g_servoCtrl;
-StepperController  g_stepperCtrl;
+ServoController g_servoCtrl;
+StepperController g_stepperCtrl;
 static WiFiProvisioning g_wifi;
-NetworkManager     g_network;
+NetworkManager g_network;
 
 static bool g_systemReady = false;
 
 // --- Глобальные переменные состояния ---
 volatile CommandId g_currentCommand = CommandId::CMD_IDLE;
-volatile uint8_t   g_statusFlags    = 0;
+volatile uint8_t g_statusFlags = 0;
 
 // --- Внешняя задача управления (определена в main.cpp) ---
-extern void controlTask(void* parameter);
+extern void controlTask(void *parameter);
 
 // --- Задача Wi-Fi (тривиальная обёртка) ---
-static void wifiTask(void* parameter) {
-    for (;;) {
+static void wifiTask(void *parameter)
+{
+    for (;;)
+    {
         g_wifi.handle();
         vTaskDelay(pdMS_TO_TICKS(10));
     }
@@ -41,7 +43,8 @@ static void wifiTask(void* parameter) {
 //  System_Init — ТОЛЬКО инициализация, ничего больше
 // ============================================================
 
-bool System_Init() {
+bool System_Init()
+{
     Serial.println("=== ABENICS Controller Starting ===");
     Serial.println("[SysInit] === BEGIN ===");
 
@@ -58,8 +61,9 @@ bool System_Init() {
                   g_config.control.wifiTaskCore);
 
     // 2. Инициализация шины I2C
-    auto& i2c = I2CBus::instance();
-    if (!i2c.begin(g_config.i2c.sda, g_config.i2c.scl, g_config.i2c.frequencyHz)) {
+    auto &i2c = I2CBus::instance();
+    if (!i2c.begin(g_config.i2c.sda, g_config.i2c.scl, g_config.i2c.frequencyHz))
+    {
         Serial.println("[SysInit] I2C init FAILED");
         return false; // Не можем работать без I2C
     }
@@ -70,30 +74,43 @@ bool System_Init() {
     delay(100); // Дать Wire отпустить мьютекс после скана
 
     // 3. Инициализация датчиков
-    // ★ ИСПРАВЛЕНО: используем g_config.imu.mpu6500Address
-    if (!SensorManager::instance().begin(g_config.imu.mpu6500Address, Wire)) { // передаём адрес и Wire
+
+    if (!SensorManager::instance().begin(g_config.imu.mpu6500Address, Wire))
+    {
         Serial.println("[SysInit] SensorManager init FAILED");
-        // ★ НЕ ВОЗВРАЩАЕМ FALSE - система может работать без IMU (но с флагом ошибки)
-    } else {
+    }
+    else
+    {
         Serial.println("[SysInit] SensorManager init OK");
+
+        // 🔴 ДОБАВИТЬ: Калибровка IMU (занимает ~2-3 секунды, НЕ ДВИГАТЬ контроллер!)
+        Serial.println("[SysInit] 🔧 Starting IMU calibration — DO NOT MOVE the device!");
+        SensorManager::instance().calibrate();
+        Serial.println("[SysInit] ✅ IMU calibration completed");
     }
 
     // 4. Инициализация сервоприводов
     if (g_servoCtrl.begin(
-        g_config.servo.pca9685Address,
-        g_config.servo.frequencyHz,
-        g_config.servo.minUs,
-        g_config.servo.maxUs,
-        g_config.servo.count)) {
+            g_config.servo.pca9685Address,
+            g_config.servo.frequencyHz,
+            g_config.servo.minUs,
+            g_config.servo.maxUs,
+            g_config.servo.count))
+    {
         Serial.println("[SysInit] ServoController OK");
-    } else {
+    }
+    else
+    {
         Serial.println("[SysInit] ServoController FAILED");
     }
 
     // 5. Инициализация шаговых моторов
-    if (g_stepperCtrl.begin(g_config.stepper)) {
+    if (g_stepperCtrl.begin(g_config.stepper))
+    {
         Serial.println("[SysInit] StepperController OK");
-    } else {
+    }
+    else
+    {
         Serial.println("[SysInit] StepperController FAILED");
     }
     g_stepperCtrl.disableAll(); // Шаговые выключены по умолчанию
@@ -116,10 +133,12 @@ bool System_Init() {
 //  System_StartTasks — делегирование запуска задач
 // ============================================================
 
-void System_StartTasks() {
-    if (!g_systemReady) return;
+void System_StartTasks()
+{
+    if (!g_systemReady)
+        return;
 
-    auto& cfg = g_config.control;
+    auto &cfg = g_config.control;
 
     // Задача управления (Core 1, приоритет 3)
     xTaskCreatePinnedToCore(
@@ -127,9 +146,12 @@ void System_StartTasks() {
         cfg.controlTaskPriority, nullptr, cfg.controlTaskCore);
 
     // Задача датчиков (Core 1, приоритет 2) ★ Только если SensorManager инициализирован
-    if (SensorManager::instance().isInitialized()) { // ★ Используем новый метод
+    if (SensorManager::instance().isInitialized())
+    { // ★ Используем новый метод
         SensorManager::instance().startTask(cfg.sensorTaskCore, cfg.sensorTaskPriority);
-    } else {
+    }
+    else
+    {
         Serial.println("[SysInit] Skipping SensorTask: SensorManager not ready.");
     }
 
@@ -149,13 +171,15 @@ void System_StartTasks() {
 //  Конфиг (одноразовый доступ)
 // ============================================================
 
-const ProjectConfig& System_GetConfig() { return g_config; }
+const ProjectConfig &System_GetConfig() { return g_config; }
 
-uint32_t System_GetTelemetryPeriodMs() {
+uint32_t System_GetTelemetryPeriodMs()
+{
     return g_config.network.telemetryPeriodMs;
 }
 
-uint32_t System_GetControlPeriodMs() {
+uint32_t System_GetControlPeriodMs()
+{
     return g_config.control.loopPeriodMs;
 }
 
@@ -163,7 +187,8 @@ uint32_t System_GetControlPeriodMs() {
 //  Статус Wi-Fi (используется в main.cpp)
 // ============================================================
 
-bool System_WiFiConnected() {
+bool System_WiFiConnected()
+{
     return g_wifi.isConnected();
 }
 
@@ -171,7 +196,8 @@ bool System_WiFiConnected() {
 //  namespace sys
 // ============================================================
 
-namespace sys {
+namespace sys
+{
     bool initAll() { return System_Init(); }
     void startTasks() { System_StartTasks(); }
 }

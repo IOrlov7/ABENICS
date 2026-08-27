@@ -58,12 +58,12 @@ bool MPU6500_Handler::readData() {
 
     if (_imu->Read()) {
         // ★ Пишем в глобальную l_mpuData (единый формат для всех IMU)
-        l_mpuData.accelX = _imu->accel_x_mps2();
-        l_mpuData.accelY = _imu->accel_y_mps2();
+        l_mpuData.accelX = -_imu->accel_y_mps2();
+        l_mpuData.accelY = -_imu->accel_x_mps2();
         l_mpuData.accelZ = _imu->accel_z_mps2();
 
-        l_mpuData.gyroX = _imu->gyro_x_radps();
-        l_mpuData.gyroY = _imu->gyro_y_radps();
+        l_mpuData.gyroX = -_imu->gyro_y_radps();
+        l_mpuData.gyroY = -_imu->gyro_x_radps();
         l_mpuData.gyroZ = _imu->gyro_z_radps();
 
         l_mpuData.temperature = _imu->die_temp_c();
