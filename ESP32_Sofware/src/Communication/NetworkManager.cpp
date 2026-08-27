@@ -116,19 +116,9 @@ void NetworkManager::networkTaskLoop()
         }
 
         // 2. Отправка телеметрии
-        if (isConnected())
-        {
-            sendTelemetry();
-        }
-        else
-        {
-            static uint32_t lastWarn = 0;
-            if (millis() - lastWarn > 10000)
-            {
-                Serial.println("[NET] ⚠ WiFi NOT connected, telemetry paused");
-                lastWarn = millis();
-            }
-        }
+        // Сер.: телеметрия всегда уходит по USB (COM), независимо от WiFi
+        // UDP: только при подключённом WiFi
+        sendTelemetry();
 
         vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(periodMs));
     }
@@ -193,12 +183,17 @@ void NetworkManager::sendTelemetry()
         lastDbg = millis();
     }
 
-    IPAddress destIP = _clientIPSet ? _clientIP : IPAddress(255, 255, 255, 255);
-    _udpTelemetry.beginPacket(destIP, _telemetryPort);
-    _udpTelemetry.write((const uint8_t *)&pkt, sizeof(TelemetryPacket));
-    _udpTelemetry.endPacket();
-
+    // Сер. (USB COM): телеметрия отправляется ВСЕГДА, независимо от WiFi
     g_serial.sendTelemetry(pkt);
+
+    // UDP: только при подключённом WiFi
+    if (isConnected())
+    {
+        IPAddress destIP = _clientIPSet ? _clientIP : IPAddress(255, 255, 255, 255);
+        _udpTelemetry.beginPacket(destIP, _telemetryPort);
+        _udpTelemetry.write((const uint8_t *)&pkt, sizeof(TelemetryPacket));
+        _udpTelemetry.endPacket();
+    }
 }
 
 // ============================================================

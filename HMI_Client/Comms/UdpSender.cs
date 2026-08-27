@@ -150,7 +150,8 @@ namespace HMI_Client.Comms
             if (data[0] != 0xAA || data[1] != 0x55) return false;
 
             // ★ CRC — мягкая проверка: логируем, но НЕ отбрасываем
-            ushort receivedCrc = (ushort)(data[101] | (data[102] << 8));
+            ushort receivedCrc = (ushort)(data[TelemetryPacket.ExpectedSize - 2] |
+                                          (data[TelemetryPacket.ExpectedSize - 1] << 8));
             ushort calculatedCrc = Crc16Helper.Calculate(data, data.Length - 2);
 
             if (calculatedCrc != receivedCrc)

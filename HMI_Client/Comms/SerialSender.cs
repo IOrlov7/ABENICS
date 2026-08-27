@@ -15,6 +15,10 @@ namespace HMI_Client.Comms
         private Task? _readTask;
         private byte[] _buffer = new byte[2048];
         private int _bufferPos = 0;
+        private long _totalBytesRead = 0;   // ★ ДИАГНОСТИКА: сколько байт прочитано
+        private uint _diagCount = 0;         // ★ ДИАГНОСТИКА: счётчик вызовов ProcessBuffer
+        private DateTime _lastCrcLog = DateTime.MinValue;
+        private long _totalCrcFails = 0;     // ★ ДИАГНОСТИКА: всего CRC-мисматчей
 
         public string PortName { get; private set; } = "COM7";
         public int BaudRate { get; set; } = 115200;
@@ -93,6 +97,8 @@ namespace HMI_Client.Comms
         // ============================================================
         private void ReadLoop(CancellationToken token)
         {
+            OnLogMessage?.Invoke($"[Serial] ReadLoop запущен, port open={_serialPort?.IsOpen}");
+            _diagCount = 0;
             while (!token.IsCancellationRequested && _serialPort?.IsOpen == true)
             {
                 try
@@ -100,6 +106,7 @@ namespace HMI_Client.Comms
                     int bytesRead = _serialPort.Read(_buffer, _bufferPos, _buffer.Length - _bufferPos);
                     if (bytesRead <= 0) continue;
 
+                    _totalBytesRead += bytesRead;
                     _bufferPos += bytesRead;
                     ProcessBuffer();
                 }
@@ -115,6 +122,7 @@ namespace HMI_Client.Comms
 
         private void ProcessBuffer()
         {
+            _diagCount++;
             while (_bufferPos >= 2)
             {
                 int headerIndex = FindHeader();
@@ -138,8 +146,11 @@ namespace HMI_Client.Comms
                     return;
 
                 // CRC little-endian: [lo] [hi]
-                ushort receivedCRC = (ushort)(_buffer[101] | (_buffer[102] << 8));
-                ushort calcCRC = Crc16Helper.Calculate(_buffer, 101);
+                // CRC расположен в двух последних байтах пакета
+                // (offset ExpectedSize-2 / ExpectedSize-1, для 119-байтового пакета — 117/118)
+                ushort receivedCRC = (ushort)(_buffer[TelemetryPacket.ExpectedSize - 2] |
+                                              (_buffer[TelemetryPacket.ExpectedSize - 1] << 8));
+                ushort calcCRC = Crc16Helper.Calculate(_buffer, TelemetryPacket.ExpectedSize - 2);
 
                 if (receivedCRC == calcCRC)
                 {
@@ -160,6 +171,16 @@ namespace HMI_Client.Comms
                 else
                 {
                     PacketsCorrupted++;
+                    _totalCrcFails++;
+                    // ★ ДИАГНОСТИКА: логируем CRC-мисматч не чаще 1 раза в секунду
+                    var now = DateTime.Now;
+                    if ((now - _lastCrcLog).TotalSeconds >= 1.0)
+                    {
+                        _lastCrcLog = now;
+                        OnLogMessage?.Invoke(
+                            $"[Serial] ⚠ CRC mismatch от ESP32: got 0x{receivedCRC:X4}, calc 0x{calcCRC:X4}, " +
+                            $"bufPos={_bufferPos}, hdr=0x{_buffer[0]:X2} 0x{_buffer[1]:X2}, totBytes={_totalBytesRead}");
+                    }
                 }
 
                 int remaining = _bufferPos - TelemetryPacket.ExpectedSize;
@@ -168,6 +189,12 @@ namespace HMI_Client.Comms
                     Array.Copy(_buffer, TelemetryPacket.ExpectedSize, _buffer, 0, remaining);
                 }
                 _bufferPos = remaining;
+
+                // ★ ДИАГНОСТИКА: раз в 200 пакетов показываем статистику приёма
+                if (_diagCount % 200 == 0)
+                {
+                    OnLogMessage?.Invoke($"[Serial] DIAG: read={_totalBytesRead}B, parsed={PacketsReceived}, crcFail={_totalCrcFails}, bufPos={_bufferPos}");
+                }
             }
         }
 
