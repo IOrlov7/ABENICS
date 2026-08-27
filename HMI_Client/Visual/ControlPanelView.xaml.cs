@@ -12,6 +12,9 @@ namespace HMI_Client.Visual
         private CommandDispatcher? _commandDispatcher;
         private ICommInterface? _currentInterface;
 
+        // ★ Событие: интерфейс был отключён. MainWindow отпишется от пакетов и очистит _activeInterface.
+        public event Action? OnInterfaceDisconnected;
+
         public event Action<ICommInterface>? OnInterfaceSelected;
 
         public ControlPanelView()
@@ -27,12 +30,63 @@ namespace HMI_Client.Visual
             BtnCalibrate.Click += BtnCalibrate_Click;
             BtnResume.Click += BtnResume_Click;
 
+            // ★ НОВОЕ: кнопки отключения
+            BtnDisconnectUdp.Click += BtnDisconnectUdp_Click;
+            BtnDisconnectCom.Click += BtnDisconnectCom_Click;
+
             // Инициализация выпадающих списков
             InitializeComPortsList();
             InitializeBaudRatesList();
+
+            UpdateDisconnectButtons();
         }
 
         public void SetCommandDispatcher(CommandDispatcher dispatcher) => _commandDispatcher = dispatcher;
+
+        // ============================================================
+        //  ★ ЗАЩИТА ОТ ОДНОВРЕМЕННОГО ПРИЁМА (UDP + Serial)
+        //  Активным может быть ТОЛЬКО один канал. При подключении нового
+        //  старый сначала отключается (клиент перестаёт слушать канал).
+        // ============================================================
+        private void DeactivateCurrent()
+        {
+            if (_currentInterface != null)
+            {
+                _currentInterface.Disconnect();               // закрывает сокет/порт, останавливает чтение
+                _currentInterface = null;
+                _commandDispatcher?.SetInterface(null);       // команды больше никуда не уходят
+                OnInterfaceDisconnected?.Invoke();            // MainWindow отпишется от телеметрии
+            }
+            UpdateDisconnectButtons();
+        }
+
+        // Кнопки «Отключиться» видны/активны только для активного канала
+        private void UpdateDisconnectButtons()
+        {
+            BtnDisconnectUdp.IsEnabled = _currentInterface is UdpSender;
+            BtnDisconnectCom.IsEnabled = _currentInterface is SerialSender;
+        }
+
+        private void BtnDisconnectUdp_Click(object sender, RoutedEventArgs e)
+        {
+            if (_currentInterface is UdpSender)
+            {
+                DeactivateCurrent();
+                OnLogInfo?.Invoke("Wi-Fi (UDP) отключено. Приём остановлен.");
+            }
+        }
+
+        private void BtnDisconnectCom_Click(object sender, RoutedEventArgs e)
+        {
+            if (_currentInterface is SerialSender)
+            {
+                DeactivateCurrent();
+                OnLogInfo?.Invoke($"COM-порт отключён. Приём остановлен.");
+            }
+        }
+
+        // ★ НОВОЕ: лог в общий LogView
+        public event Action<string>? OnLogInfo;
 
         // ============================================================
         //  Инициализация ComboBox
@@ -93,6 +147,10 @@ namespace HMI_Client.Visual
                 return;
             }
 
+            // ★ Защита от одновременного приёма: сначала отключаем активный канал (если есть),
+            // затем открываем новый. Клиент никогда не слушает два канала одновременно.
+            DeactivateCurrent();
+
             try
             {
                 var udpInterface = new UdpSender();
@@ -102,9 +160,11 @@ namespace HMI_Client.Visual
                     OnInterfaceSelected?.Invoke(udpInterface);
                     _commandDispatcher?.SetInterface(udpInterface);
                 }
+                UpdateDisconnectButtons();
             }
             catch (Exception ex)
             {
+                UpdateDisconnectButtons();
                 MessageBox.Show($"Ошибка подключения по Wi-Fi: {ex.Message}", "Ошибка",
                                 MessageBoxButton.OK, MessageBoxImage.Error);
             }
@@ -134,6 +194,9 @@ namespace HMI_Client.Visual
 
             string comPortName = CmbComPort.SelectedItem.ToString()!;
             int baudRate = (int)CmbBaudRate.SelectedItem;
+
+            // ★ Защита от одновременного приёма: сначала отключаем активный канал (если есть).
+            DeactivateCurrent();
 
             try
             {
@@ -172,21 +235,25 @@ namespace HMI_Client.Visual
                     OnInterfaceSelected?.Invoke(serialInterface);
                     _commandDispatcher?.SetInterface(serialInterface);
                 }
+                UpdateDisconnectButtons();
             }
             catch (UnauthorizedAccessException)
             {
+                UpdateDisconnectButtons();
                 MessageBox.Show(
                     $"Порт {comPortName} занят другим приложением.\nЗакройте другие программы и попробуйте снова.",
                     "Порт занят", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
             catch (System.IO.IOException)
             {
+                UpdateDisconnectButtons();
                 MessageBox.Show(
                     $"Порт {comPortName} не существует или был отключён.\nОбновите список портов кнопкой 🔄.",
                     "Порт недоступен", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
             catch (Exception ex)
             {
+                UpdateDisconnectButtons();
                 MessageBox.Show($"Ошибка подключения к {comPortName}: {ex.Message}", "Ошибка",
                                 MessageBoxButton.OK, MessageBoxImage.Error);
             }

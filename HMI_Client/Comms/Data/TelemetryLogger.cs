@@ -13,6 +13,8 @@ namespace HMI_Client.Data
         private StreamWriter? _writer;
         private readonly string _fileName;
         private bool _isLogging = false;
+        private int _bufferedLines = 0;   // ★ Для периодического сброса на диск
+        private const int FlushEveryLines = 100; // Сбрасывать буфер каждые 100 строк
 
         public TelemetryLogger(string fileNamePrefix = "telemetry_log")
         {
@@ -48,7 +50,14 @@ namespace HMI_Client.Data
                            $"{packet.ServoAngles[4]},{packet.ServoAngles[5]},{packet.ServoAngles[6]},{packet.ServoAngles[7]}," +
                            $"{packet.WifiRssi},{(byte)packet.CurrentCmd:X2},{(byte)packet.StatusFlags:X2}";
                 _writer.WriteLine(line);
-                _writer.Flush();
+                // ★ УБРАНО: _writer.Flush() на каждый пакет тормозил приём (синхронная запись на диск).
+                // Сбрасываем буфер периодически, чтобы не терять данные и не грузить диск.
+                _bufferedLines++;
+                if (_bufferedLines >= FlushEveryLines)
+                {
+                    _writer.Flush();
+                    _bufferedLines = 0;
+                }
             }
             catch { }
         }

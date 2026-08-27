@@ -22,6 +22,9 @@
                      ToolTip="IP-адрес ESP32" VerticalContentAlignment="Center"/>
             <Button x:Name="BtnConnectUdp" Content="🔌 Подключиться по Wi-Fi" Width="180" Margin="0,0,5,0"
                     Background="#9C27B0" Foreground="White" BorderThickness="0" Padding="4,3" Cursor="Hand"/>
+            <Button x:Name="BtnDisconnectUdp" Content="⏹ Отключиться" Width="100" Margin="0,0,5,0" IsEnabled="False"
+                    Background="#7B1FA2" Foreground="White" BorderThickness="0" Padding="4,3" Cursor="Hand"
+                    ToolTip="Отключиться от ESP32 по Wi-Fi (закрывает UDP-сокет и останавливает приём)"/>
         </StackPanel>
 
         <!-- Ряд 1: Подключение по COM (с выбором порта и скорости) -->
@@ -46,6 +49,9 @@
             <!-- Кнопка подключения по COM -->
             <Button x:Name="BtnConnectCom" Content="🔌 Подключиться по COM" Width="180" Margin="0,0,5,0"
                     Background="#607D8B" Foreground="White" BorderThickness="0" Padding="4,3" Cursor="Hand"/>
+            <Button x:Name="BtnDisconnectCom" Content="⏹ Отключиться" Width="100" Margin="0,0,5,0" IsEnabled="False"
+                    Background="#455A64" Foreground="White" BorderThickness="0" Padding="4,3" Cursor="Hand"
+                    ToolTip="Отключиться по COM (закрывает порт и останавливает приём)"/>
         </StackPanel>
 
         <!-- Ряд 2: Управление -->

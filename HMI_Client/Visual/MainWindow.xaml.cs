@@ -18,6 +18,13 @@ namespace HMI_Client.Visual
         private ICommInterface? _activeInterface;
         private int _packetCount = 0;
         private DateTime _lastRateCheck = DateTime.Now;
+        private bool _visualizerWarned = false;
+
+        // ★ ОГРАНИЧЕНИЕ частоты отрисовки UI (иначе при 50 пак./с UI копит очередь и подлагивает).
+        // Значение → ~30 Гц отрисовки, этого достаточно для плавной анимации.
+        private readonly System.Diagnostics.Stopwatch _uiClock = System.Diagnostics.Stopwatch.StartNew();
+        private long _lastRenderMs = 0;
+        private const long UiRenderIntervalMs = 33; // ~30 кадров/с
 
         public MainWindow()
         {
@@ -29,6 +36,8 @@ namespace HMI_Client.Visual
             PidTuner.SetCommandDispatcher(_commandDispatcher);
             PidTuner.OnLog += msg => UiDispatcher.Invoke(() => LogView.AppendLog(msg));
             ControlPanel.OnInterfaceSelected += OnInterfaceSelected;
+            ControlPanel.OnInterfaceDisconnected += OnInterfaceDisconnected; // ★ НОВОЕ
+            ControlPanel.OnLogInfo += msg => UiDispatcher.Invoke(() => LogView.AppendLog(msg)); // ★ НОВОЕ
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
             timer.Tick += (s, e) => UpdateStatus();
             timer.Start();
@@ -54,12 +63,26 @@ namespace HMI_Client.Visual
                 LogView.AppendLog($"[MAIN] Подключён интерфейс: {selectedInterface.GetType().Name}"));
         }
 
+        // ★ НОВОЕ: пользователь нажал «Отключиться» — прекращаем слушать канал,
+        // отписываемся от всех событий интерфейса.
+        private void OnInterfaceDisconnected()
+        {
+            if (_activeInterface != null)
+            {
+                _activeInterface.OnTelemetryReceived -= OnTelemetryReceived;
+                _activeInterface.OnLogMessage -= OnLogMessage;
+                _activeInterface.OnConnectionChanged -= OnConnectionChanged;
+                _activeInterface = null;
+            }
+        }
+
         private void OnTelemetryReceived(TelemetryPacket packet)
         {
             _sensorData.UpdateFromPacket(packet);
-            
+            _packetCount++;
+
             // 🔴 ДИАГНОСТИКА: Первые 5 пакетов — выводим ВСЁ в LogView
-            if (_packetCount < 5)
+            if (_packetCount <= 5)
             {
                 double quatNorm = Math.Sqrt(
                     packet.QuatW * packet.QuatW + 
@@ -81,37 +104,49 @@ namespace HMI_Client.Visual
                     }
                 });
             }
-            
-            // 🔴 Каждые 100 пакетов — краткий лог
-            if (_packetCount % 100 == 0 && _packetCount > 0)
+
+            // ★ ФИЛЬТР: обновляем тяжёлый UI (3D, графики, PID) и логируем на диск
+            // не чаще UiRenderIntervalMs (≈30 Гц). Остальные пакеты просто пропускаем —
+            // приём чтения не блокируется, UI не копит очередь.
+            var nowMs = _uiClock.ElapsedMilliseconds;
+            if (_packetCount <= 5 || (nowMs - _lastRenderMs) >= UiRenderIntervalMs)
             {
+                _lastRenderMs = nowMs;
+
+                // 🔴 Каждые 100 пакетов — краткий лог
+                if (_packetCount % 100 == 0 && _packetCount > 0)
+                {
+                    UiDispatcher.Invoke(() =>
+                        LogView.AppendLog($"[QUAT] Пакет #{_packetCount}: W={packet.QuatW:F2}, X={packet.QuatX:F2}, Y={packet.QuatY:F2}, Z={packet.QuatZ:F2}"));
+                }
+
                 UiDispatcher.Invoke(() =>
-                    LogView.AppendLog($"[QUAT] Пакет #{_packetCount}: W={packet.QuatW:F2}, X={packet.QuatX:F2}, Y={packet.QuatY:F2}, Z={packet.QuatZ:F2}"));
+                {
+                    // 🔴 Проверка Visualizer3D
+                    if (Visualizer3D == null)
+                    {
+                        if (!_visualizerWarned)
+                        {
+                            _visualizerWarned = true;
+                            LogView.AppendLog("[3D] ❌ Visualizer3D == null! Проверь x:Name в MainWindow.xaml");
+                        }
+                    }
+                    else
+                    {
+                        Visualizer3D.UpdateRotation(packet.QuatW, packet.QuatX, packet.QuatY, packet.QuatZ);
+                    }
+
+                    TxtRoll.Text = $"{packet.EulerRoll:F1}°";
+                    TxtPitch.Text = $"{packet.EulerPitch:F1}°";
+                    TxtYaw.Text = $"{packet.EulerYaw:F1}°";
+                    TxtRssi.Text = $"{packet.WifiRssi} dBm";
+                    TxtLastPacket.Text = $"ID: {packet.PacketId}, T: {packet.TimestampMs} ms";
+                    GraphsView.UpdateCharts(packet.AccelX, packet.AccelY, packet.AccelZ, packet.GyroX, packet.GyroY, packet.GyroZ);
+                    PidTuner.UpdateFromPacket(packet);
+                });
+
+                _telemetryLogger.LogPacket(packet);
             }
-
-            UiDispatcher.Invoke(() =>
-            {
-                // 🔴 Проверка Visualizer3D
-                if (Visualizer3D == null && _packetCount == 0)
-                {
-                    LogView.AppendLog("[3D] ❌ Visualizer3D == null! Проверь x:Name в MainWindow.xaml");
-                }
-                else
-                {
-                    Visualizer3D.UpdateRotation(packet.QuatW, packet.QuatX, packet.QuatY, packet.QuatZ);
-                }
-
-                TxtRoll.Text = $"{packet.EulerRoll:F1}°";
-                TxtPitch.Text = $"{packet.EulerPitch:F1}°";
-                TxtYaw.Text = $"{packet.EulerYaw:F1}°";
-                TxtRssi.Text = $"{packet.WifiRssi} dBm";
-                TxtLastPacket.Text = $"ID: {packet.PacketId}, T: {packet.TimestampMs} ms";
-                GraphsView.UpdateCharts(packet.AccelX, packet.AccelY, packet.AccelZ, packet.GyroX, packet.GyroY, packet.GyroZ);
-                PidTuner.UpdateFromPacket(packet);
-            });
-
-            _telemetryLogger.LogPacket(packet);
-            _packetCount++;
         }
 
         private void OnLogMessage(string msg) => UiDispatcher.Invoke(() => LogView.AppendLog(msg));
