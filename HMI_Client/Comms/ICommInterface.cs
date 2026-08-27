@@ -29,5 +29,9 @@ namespace HMI_Client.Comms
         
         // ВАЖНО: byte[]? payload = null (знак вопроса обязателен!)
         void SendCommand(CommandId cmd, byte[]? payload = null); 
+
+        // Отправка произвольных ("сырых") данных — используется для текстовых
+        // PID-команд вида "PID:OX:1.5,0.1,0.05,0.0" (без бинарной обёртки AA 55).
+        void SendRawData(byte[] data);
     }
 }

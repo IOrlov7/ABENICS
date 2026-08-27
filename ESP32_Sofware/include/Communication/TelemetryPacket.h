@@ -32,6 +32,7 @@ enum StatusFlags : uint8_t {
 // ============================================================
 //  Бинарные структуры (pack = 1, без выравнивания)
 //  ★ ВСЕ ТИПЫ СИНХРОНИЗИРОВАНЫ С C# SensorData.cs
+//  ★ РАЗМЕР ПАКЕТА: 119 байт (обновлено с 103 для PID-тюнинга)
 // ============================================================
 
 #pragma pack(push, 1)
@@ -47,7 +48,7 @@ struct IMU_Data {
     float gyro_x,  gyro_y,  gyro_z;         // 12 байт (рад/с)
     float mag_x,   mag_y,   mag_z;          // 12 байт (0 для MPU6500)
 
-    // ★ УБРАЛИ temperature, чтобы влезть в 103 байта
+    // ★ УБРАЛИ temperature, чтобы влезть в исходные 103 байта
     // Итого: 16 + 12 + 12 + 12 + 12 = 64 байта
 };
 
@@ -66,9 +67,9 @@ struct System_State {
 };
 
 struct TelemetryPacket {
-    uint8_t  header[2];         // 0: 0xAA, 0x55
-    uint32_t packet_id;         // 2: счётчик (uint32!)
-    uint32_t timestamp_ms;      // 6: millis()
+    uint8_t  header[2];         // 0: 0xAA, 0x55 (2 байта)
+    uint32_t packet_id;         // 2: счётчик (uint32!) (4 байта)
+    uint32_t timestamp_ms;      // 6: millis() (4 байта)
 
     struct {
         float quat_w;           // 10
@@ -87,23 +88,33 @@ struct TelemetryPacket {
         float mag_x;            // 62
         float mag_y;            // 66
         float mag_z;            // 70
-    } imu;
+    } imu;                      // Итого IMU: 64 байта (до 73 включительно)
 
-    float stepper_x_angle;      // 74
-    float stepper_y_angle;      // 78
-    uint16_t servo_angles[8];   // 82 (16 байт)
+    float stepper_x_angle;      // 74 (4 байта)
+    float stepper_y_angle;      // 78 (4 байта)
+    uint16_t servo_angles[8];   // 82 (16 байт, до 97 включительно)
+
+    // ========================================================
+    // ★ НОВЫЕ ПОЛЯ для PID-тюнинга и визуализации каскада
+    // ========================================================
+    float target_angle_x;       // 98  (4 байта) - Целевой угол для внутреннего контура X
+    float target_angle_y;       // 102 (4 байта) - Целевой угол для внутреннего контура Y
+    float target_speed_x;       // 106 (4 байта) - Выход PID (шаги/с или ШИМ) для X
+    float target_speed_y;       // 110 (4 байта) - Выход PID (шаги/с или ШИМ) для Y
+    // ========================================================
 
     struct {
-        uint8_t current_cmd;    // 98
-        uint8_t status_flags;   // 99
-        int8_t  wifi_rssi;      // 100
-    } system;
+        uint8_t current_cmd;    // 114
+        uint8_t status_flags;   // 115
+        int8_t  wifi_rssi;      // 116
+    } system;                   // Итого System: 3 байта (до 116 включительно)
 
-    uint16_t crc16;             // 101
+    uint16_t crc16;             // 117 (2 байта, little-endian)
 };
 #pragma pack(pop)
 
-static_assert(sizeof(TelemetryPacket) == 103, "Packet size mismatch!");
+// ★ ОБНОВЛЕНО: размер пакета теперь 119 байт (было 103)
+static_assert(sizeof(TelemetryPacket) == 119, "Packet size mismatch! Ожидалось 119 байт.");
 
 #define TELEMETRY_PACKET_SIZE sizeof(TelemetryPacket)
 #define TELEMETRY_HEADER_BYTE_0 0xAA

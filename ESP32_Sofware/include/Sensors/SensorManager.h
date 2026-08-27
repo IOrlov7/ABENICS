@@ -40,6 +40,10 @@ public:
     float getMagZ() const;
     float getTemperature() const;
 
+    // ★ Энкодеры осей (MT6816, пока заглушки)
+    float getEncoderAngleX() const;
+    float getEncoderAngleY() const;
+
     // ★ Запуск задачи
     void startTask(uint8_t coreId, uint8_t priority);
 

@@ -5,26 +5,24 @@ using HMI_Client.Utils;
 namespace HMI_Client.Comms.Data
 {
     /// <summary>
-    /// Бинарная структура пакета телеметрии (103 байта, Pack=1).
-    /// Синхронизирована с ESP32 TelemetryPacket.h и форматом из 11.txt.
+    /// Бинарная структура пакета телеметрии (119 байт, Pack=1).
+    /// Синхронизирована с ESP32 TelemetryPacket.h.
     /// Все поля little-endian, все IMU-данные как float.
     /// </summary>
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public struct TelemetryPacket
     {
-        public const int ExpectedSize = 103;
+        public const int ExpectedSize = 119; // ★ ОБНОВЛЕНО: было 103, стало 119
 
         // Offset 0-1: Заголовок
-        public byte Header0;          // 0xAA
-        public byte Header1;          // 0x55
+        public byte Header0;          // 0: 0xAA
+        public byte Header1;          // 1: 0x55
 
-        // Offset 2-5: Счётчик пакетов (uint32 LE)
-        public uint PacketId;
+        // Offset 2-9: Идентификация и время
+        public uint PacketId;         // 2: счётчик (uint32 LE)
+        public uint TimestampMs;      // 6: millis()
 
-        // Offset 6-9: Timestamp (uint32 LE)
-        public uint TimestampMs;
-
-        // Offset 10-73: IMU (все float)
+        // Offset 10-73: IMU (все float, 16 полей * 4 = 64 байта)
         public float QuatW;           // 10
         public float QuatX;           // 14
         public float QuatY;           // 18
@@ -42,7 +40,7 @@ namespace HMI_Client.Comms.Data
         public float MagY;            // 66
         public float MagZ;            // 70
 
-        // Offset 74-81: Шаговые моторы
+        // Offset 74-81: Шаговые моторы (текущее положение)
         public float StepperX_Angle;  // 74
         public float StepperY_Angle;  // 78
 
@@ -50,13 +48,22 @@ namespace HMI_Client.Comms.Data
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = 8)]
         public ushort[] ServoAngles;
 
-        // Offset 98-100: Система
-        public byte CurrentCmd;       // 98
-        public byte StatusFlags;      // 99
-        public sbyte WifiRssi;        // 100
+        // ========================================================
+        // ★ НОВЫЕ ПОЛЯ для PID-тюнинга и визуализации каскада (16 байт)
+        // ========================================================
+        public float TargetAngleX;    // 98: Целевой угол для внутреннего контура X
+        public float TargetAngleY;    // 102: Целевой угол для внутреннего контура Y
+        public float TargetSpeedX;    // 106: Выход PID (шаги/с или ШИМ) для X
+        public float TargetSpeedY;    // 110: Выход PID (шаги/с или ШИМ) для Y
+        // ========================================================
 
-        // Offset 101-102: CRC16
-        public ushort Crc16;          // 101
+        // Offset 114-116: Система (3 байта)
+        public byte CurrentCmd;       // 114
+        public byte StatusFlags;      // 115
+        public sbyte WifiRssi;        // 116
+
+        // Offset 117-118: CRC16 (2 байта)
+        public ushort Crc16;          // 117
 
         /// <summary>
         /// Проверка заголовка пакета

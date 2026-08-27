@@ -26,6 +26,8 @@ namespace HMI_Client.Visual
             _sensorData = new SensorData();
             _telemetryLogger = new TelemetryLogger();
             ControlPanel.SetCommandDispatcher(_commandDispatcher);
+            PidTuner.SetCommandDispatcher(_commandDispatcher);
+            PidTuner.OnLog += msg => UiDispatcher.Invoke(() => LogView.AppendLog(msg));
             ControlPanel.OnInterfaceSelected += OnInterfaceSelected;
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
             timer.Tick += (s, e) => UpdateStatus();
@@ -105,6 +107,7 @@ namespace HMI_Client.Visual
                 TxtRssi.Text = $"{packet.WifiRssi} dBm";
                 TxtLastPacket.Text = $"ID: {packet.PacketId}, T: {packet.TimestampMs} ms";
                 GraphsView.UpdateCharts(packet.AccelX, packet.AccelY, packet.AccelZ, packet.GyroX, packet.GyroY, packet.GyroZ);
+                PidTuner.UpdateFromPacket(packet);
             });
 
             _telemetryLogger.LogPacket(packet);

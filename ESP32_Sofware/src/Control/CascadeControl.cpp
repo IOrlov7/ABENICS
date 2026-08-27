@@ -37,4 +37,8 @@ void CascadeControl::SetTarget(float pitch, float roll) {
     _axisX.targetImuAngle = pitch;
     _axisY.targetImuAngle = roll;
 }
-// SetOuterCoeffsX, SetInnerCoeffsX и т.д. — тривиальные обёртки
+
+void CascadeControl::SetOuterCoeffsX(const PIDCoeffs& c) { _axisX.outerPID.SetCoeffs(c); }
+void CascadeControl::SetInnerCoeffsX(const PIDCoeffs& c) { _axisX.innerPID.SetCoeffs(c); }
+void CascadeControl::SetOuterCoeffsY(const PIDCoeffs& c) { _axisY.outerPID.SetCoeffs(c); }
+void CascadeControl::SetInnerCoeffsY(const PIDCoeffs& c) { _axisY.innerPID.SetCoeffs(c); }

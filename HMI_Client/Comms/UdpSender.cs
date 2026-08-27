@@ -169,6 +169,19 @@ namespace HMI_Client.Comms
             _sendClient?.Send(packet, packet.Length, _esp32EndPoint);
         }
 
+        public void SendRawData(byte[] data)
+        {
+            if (_esp32EndPoint == null || data == null) return;
+            try
+            {
+                _sendClient?.Send(data, data.Length, _esp32EndPoint);
+            }
+            catch (Exception ex)
+            {
+                Log($"Ошибка отправки сырых данных: {ex.Message}");
+            }
+        }
+
         private byte[] BuildCommandPacket(CommandId cmdId, byte[]? payload = null)
         {
             int payloadLen = payload?.Length ?? 0;

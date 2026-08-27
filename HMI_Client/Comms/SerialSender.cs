@@ -217,6 +217,24 @@ namespace HMI_Client.Comms
             }
         }
 
+        public void SendRawData(byte[] data)
+        {
+            if (_serialPort?.IsOpen != true || data == null)
+            {
+                OnLogMessage?.Invoke("[Serial] Попытка отправки без подключения");
+                return;
+            }
+
+            try
+            {
+                _serialPort.Write(data, 0, data.Length);
+            }
+            catch (Exception ex)
+            {
+                OnLogMessage?.Invoke($"[Serial] Ошибка отправки: {ex.Message}");
+            }
+        }
+
         public static string[] GetAvailablePorts()
         {
             try { return SerialPort.GetPortNames(); }

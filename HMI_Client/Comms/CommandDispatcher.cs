@@ -1,16 +1,6 @@
 // File: HMI_Client/Comms/CommandDispatcher.cs
-//
-// НАЗНАЧЕНИЕ:
-// Центральный узел для отправки команд.
-// Хранит ссылку на активный ICommInterface и перенаправляет команды (E-STOP, HOME и т.д.) ему.
-// Это позволяет UI-компонентам (например, кнопкам) вызывать команды, не зная, какое именно соединение (UDP, Serial) используется.
-//
-// ОТВЕЧАЕТ ЗА:
-// - Хранение активного интерфейса связи.
-// - Маршрутизацию команд к активному интерфейсу.
-
 using HMI_Client.Comms.Data;
-using HMI_Client.Comms.Data;
+using System.Text;
 
 namespace HMI_Client.Comms
 {
@@ -32,5 +22,31 @@ namespace HMI_Client.Comms
         public void SendHome() => SendCommand(CommandId.CMD_HOME);
         public void SendCalibrate() => SendCommand(CommandId.CMD_CALIBRATE);
         public void SendResume() => SendCommand(CommandId.CMD_RESUME);
+
+        // ★ НОВОЕ: Методы для PID-тюнинга
+        public void SendPidCoeffs(string axis, bool isOuter, PIDCoeffs coeffs)
+        {
+            string prefix = isOuter ? "O" : "I";
+            string cmd = $"PID:{prefix}{axis}:{coeffs.Kp:F3},{coeffs.Ki:F3},{coeffs.Kd:F3},{coeffs.Kff:F3}";
+            SendTextCommand(cmd);
+        }
+
+        public void SendPidTarget(float pitch, float roll)
+        {
+            string cmd = $"PID:TGT:{pitch:F2},{roll:F2}";
+            SendTextCommand(cmd);
+        }
+
+        private void SendTextCommand(string text)
+        {
+            // Отправка текстовой команды через активный интерфейс
+            // Предполагается, что ICommInterface имеет метод SendTextCommand
+            // Если нет, нужно добавить его в интерфейс
+            byte[] data = Encoding.UTF8.GetBytes(text);
+            _currentInterface?.SendRawData(data);
+        }
     }
+
+    // ★ НОВОЕ: Структура для хранения коэффициентов PID
+    public record PIDCoeffs(float Kp, float Ki, float Kd, float Kff);
 }

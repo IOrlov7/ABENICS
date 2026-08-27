@@ -2,6 +2,10 @@
 #include <Arduino.h>
 
 struct PIDCoeffs {
+    PIDCoeffs() = default;
+    PIDCoeffs(float kp, float ki, float kd, float kff)
+        : Kp(kp), Ki(ki), Kd(kd), Kff(kff) {}
+
     float Kp = 0.0f;
     float Ki = 0.0f;
     float Kd = 0.0f;

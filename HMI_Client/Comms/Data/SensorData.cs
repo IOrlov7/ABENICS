@@ -1,13 +1,4 @@
 // File: HMI_Client/Comms/Data/SensorData.cs
-//
-// НАЗНАЧЕНИЕ:
-// Этот класс представляет собой удобную для привязки к интерфейсу (UI binding) версию данных телеметрии.
-// Он преобразует сырые данные из TelemetryPacket в свойства, которые могут отслеживаться WPF.
-// Он НЕ содержит логики обработки данных или сетевых операций.
-//
-// ОТВЕЧАЕТ ЗА:
-// - Предоставление данных из TelemetryPacket через свойства WPF.
-// - Уведомление WPF об изменениях данных (INotifyPropertyChanged).
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 
@@ -34,6 +25,13 @@ namespace HMI_Client.Comms.Data
             OnPropertyChanged(nameof(WifiRssi));
             OnPropertyChanged(nameof(CurrentCmd));
             OnPropertyChanged(nameof(StatusFlags));
+            // ★ НОВОЕ: Уведомления для PID-тюнинга
+            OnPropertyChanged(nameof(StepperX_Angle));
+            OnPropertyChanged(nameof(StepperY_Angle));
+            OnPropertyChanged(nameof(TargetAngleX));
+            OnPropertyChanged(nameof(TargetAngleY));
+            OnPropertyChanged(nameof(TargetSpeedX));
+            OnPropertyChanged(nameof(TargetSpeedY));
         }
 
         public uint PacketId => _packet.PacketId;
@@ -48,10 +46,16 @@ namespace HMI_Client.Comms.Data
         public float GyroY => _packet.GyroY;
         public float GyroZ => _packet.GyroZ;
         public sbyte WifiRssi => _packet.WifiRssi;
-        
-        // ★ ИСПРАВЛЕНО: packet → _packet
         public CommandId CurrentCmd => (CommandId)_packet.CurrentCmd;
         public StatusFlags StatusFlags => (StatusFlags)_packet.StatusFlags;
+
+        // ★ НОВОЕ: Свойства для PID-тюнинга
+        public float StepperX_Angle => _packet.StepperX_Angle;
+        public float StepperY_Angle => _packet.StepperY_Angle;
+        public float TargetAngleX => _packet.TargetAngleX;
+        public float TargetAngleY => _packet.TargetAngleY;
+        public float TargetSpeedX => _packet.TargetSpeedX;
+        public float TargetSpeedY => _packet.TargetSpeedY;
 
         public event PropertyChangedEventHandler? PropertyChanged;
 

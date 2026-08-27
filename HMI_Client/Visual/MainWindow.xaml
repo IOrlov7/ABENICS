@@ -7,49 +7,63 @@
         Background="#F5F5F5" WindowStartupLocation="CenterScreen">
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="220"/>
-            <RowDefinition Height="120"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <local:ControlPanelView x:Name="ControlPanel" Grid.Row="0" Margin="8"/>
-        <local:Visualizer3DView x:Name="Visualizer3D" Grid.Row="1"/>
+        <TabControl Grid.Row="0">
+            <TabItem Header="Основное">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="220"/>
+                        <RowDefinition Height="120"/>
+                    </Grid.RowDefinitions>
 
-        <Border Grid.Row="2" Background="White" BorderBrush="#E0E0E0" BorderThickness="0,1,0,0" Padding="12,8">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <StackPanel Grid.Column="0">
-                    <TextBlock Text="Roll (X)" FontSize="11" Foreground="#757575"/>
-                    <TextBlock x:Name="TxtRoll" Text="0.0°" FontSize="18" FontWeight="SemiBold" Foreground="#1976D2"/>
-                </StackPanel>
-                <StackPanel Grid.Column="1">
-                    <TextBlock Text="Pitch (Y)" FontSize="11" Foreground="#757575"/>
-                    <TextBlock x:Name="TxtPitch" Text="0.0°" FontSize="18" FontWeight="SemiBold" Foreground="#388E3C"/>
-                </StackPanel>
-                <StackPanel Grid.Column="2">
-                    <TextBlock Text="Yaw (Z)" FontSize="11" Foreground="#757575"/>
-                    <TextBlock x:Name="TxtYaw" Text="0.0°" FontSize="18" FontWeight="SemiBold" Foreground="#D32F2F"/>
-                </StackPanel>
-                <StackPanel Grid.Column="3">
-                    <TextBlock Text="Wi-Fi RSSI" FontSize="11" Foreground="#757575"/>
-                    <TextBlock x:Name="TxtRssi" Text="-- dBm" FontSize="18" FontWeight="SemiBold" Foreground="#F57C00"/>
-                </StackPanel>
-            </Grid>
-        </Border>
+                    <local:ControlPanelView x:Name="ControlPanel" Grid.Row="0" Margin="8"/>
+                    <local:Visualizer3DView x:Name="Visualizer3D" Grid.Row="1"/>
 
-        <local:TelemetryGraphsView x:Name="GraphsView" Grid.Row="3" Margin="8,8,8,0"/>
-        <local:LogView x:Name="LogView" Grid.Row="4" Margin="8,8,8,8"/>
-        
-        <!-- Статус-бар (ИСПРАВЛЕНО: добавлен x:Name="TxtStatus") -->
-        <Border Grid.Row="5" Background="#424242" Padding="12,4">
+                    <Border Grid.Row="2" Background="White" BorderBrush="#E0E0E0" BorderThickness="0,1,0,0" Padding="12,8">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Roll (X)" FontSize="11" Foreground="#757575"/>
+                                <TextBlock x:Name="TxtRoll" Text="0.0°" FontSize="18" FontWeight="SemiBold" Foreground="#1976D2"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="Pitch (Y)" FontSize="11" Foreground="#757575"/>
+                                <TextBlock x:Name="TxtPitch" Text="0.0°" FontSize="18" FontWeight="SemiBold" Foreground="#388E3C"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="Yaw (Z)" FontSize="11" Foreground="#757575"/>
+                                <TextBlock x:Name="TxtYaw" Text="0.0°" FontSize="18" FontWeight="SemiBold" Foreground="#D32F2F"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="3">
+                                <TextBlock Text="Wi-Fi RSSI" FontSize="11" Foreground="#757575"/>
+                                <TextBlock x:Name="TxtRssi" Text="-- dBm" FontSize="18" FontWeight="SemiBold" Foreground="#F57C00"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <local:TelemetryGraphsView x:Name="GraphsView" Grid.Row="3" Margin="8,8,8,0"/>
+                    <local:LogView x:Name="LogView" Grid.Row="4" Margin="8,8,8,8"/>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="PID Тюнер">
+                <local:PidTunerView x:Name="PidTuner"/>
+            </TabItem>
+        </TabControl>
+
+        <!-- Статус-бар (всегда виден внизу окна) -->
+        <Border Grid.Row="1" Background="#424242" Padding="12,4">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>

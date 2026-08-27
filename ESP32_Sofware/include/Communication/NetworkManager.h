@@ -6,6 +6,7 @@
 #include <freertos/task.h>
 
 #include "Communication/TelemetryPacket.h"
+#include "Control/PID_Controller.h"
 
 // ★ МАКРОСЫ UDP_TELEMETRY_PORT / UDP_COMMAND_PORT УДАЛЕНЫ
 // Порты теперь передаются из ProjectConfig через begin()
@@ -39,6 +40,10 @@ private:
     // CRC16
     uint16_t calcCRC16(const uint8_t* data, size_t len) const;
     void finalizePacket(TelemetryPacket& pkt);
+
+    // ★ PID-тюнинг: парсер текстовых команд и коэффициентов
+    void processPidCommand(const String& cmd);
+    bool parseCoeffs(const String& s, PIDCoeffs& c);
 
     WiFiUDP _udpTelemetry;
     WiFiUDP _udpCommand;

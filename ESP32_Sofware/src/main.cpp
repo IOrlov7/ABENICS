@@ -2,6 +2,8 @@
 #include "Init/SystemInit.h"
 #include "Control/JoystickHandler.h"
 #include "Control/ManipulatorControl.h"
+#include "Control/CascadeControl.h"
+#include "Sensors/SensorManager.h"
 #include "Communication/SerialPort.h"
 
 // Глобальное состояние манипулятора (используется в controlTask)
@@ -19,6 +21,15 @@ void controlTask(void* pvParameters) {
         control::joystick().update();
         control::readSensors(g_manipState);
         control::processControl(g_manipState, dt);
+
+        // ★ НОВОЕ: каскадный ПИД (IMU → энкодер → мотор) по осям X/Y
+        CascadeControl::GetInstance().Update(
+            SensorManager::instance().getPitch(),
+            SensorManager::instance().getRoll(),
+            SensorManager::instance().getEncoderAngleX(),
+            SensorManager::instance().getEncoderAngleY(),
+            dt);
+
         vTaskDelayUntil(&lastWakeTime, period);
     }
 }
